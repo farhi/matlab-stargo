@@ -1,14 +1,14 @@
 # matlab-starbook
-Control a Avalon mount StarGo from Matlab
+Control an Avalon mount with StarGo from Matlab
 
-![Image of StarBook](https://github.com/farhi/matlab-starbook/blob/master/doc/StarGo.jpg)
+![Image of StarGo](https://github.com/farhi/matlab-stargo/blob/master/doc/stargo.jpg)
 
 Purpose
 -------
 
-TARGO: this is a Matlab class to control the Avalon StarGo for telescope mounts.
+STARGO: this is a Matlab class to control the Avalon StarGo for telescope mounts.
 
-- Controllers: StarGo
+- Controller: StarGo
 - Mounts: M-zero, M-uno, Linear mounts.
    
 This way you can fully control, and plan the sky observations from your sofa, while it's freezing outside.

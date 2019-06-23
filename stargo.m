@@ -50,6 +50,7 @@ classdef stargo < handle
     place     = {};       % GPS location and hour shift/UTC
     UserData  = [];
     serial    = [];       % the serial object
+    state     = [];       % detailed controller state (raw)
     
   end % properties
   
@@ -61,7 +62,7 @@ classdef stargo < handle
   end % properties
   
   properties (Constant=true)
-    catalogs     = getcatalogs;       % load catalogs
+    catalogs     = getcatalogs;       % load catalogs at start
   end % shared properties
   
   events
@@ -83,23 +84,20 @@ classdef stargo < handle
       try
         sb.serial = serial(sb.dev); fopen(sb.serial);
       catch ME
-        l = getReport(ME);
-        available = findstr(l, 'Available ports');
-        if ~isempty(available)
-          l = textscan(l(available(1):end),'%s','Delimiter','\n\r');
-          available = l{1};
-        end
-        disp([ mfilename ': Invalid serial/bluetooth port ' sb.dev ]);
-        if iscell(available) available = available{1}; end
-        disp(available)
+        disp([ mfilename ': failed to connect ' sb.dev ]);
+        disp(getports);
         return
       end
       sb.serial.Terminator = '#';
+      identify(sb);
+      disp([ '[' datestr(now) '] ' sb.version ' connected to ' sb.dev ]);
+      start(sb);
       
     end % stargo
     
     function val = queue(self, cmd, nowait_flag)
       % queue: sends the input, waits for completion, get result as a string
+      if nargin == 1, val = flush(self); return; end
       if nargin < 3, nowait_flag = false;
       elseif ischar(nowait_flag)
         if any(strcmp(nowait_flag,{'nowait','async','background'}))
@@ -133,14 +131,6 @@ classdef stargo < handle
 
     end % queue
     
-    function str = flush(self)
-      com = self.serial;
-      str = '';
-      while com.BytesAvailable
-        str = [ str fscanf(com) ];
-      end
-    end % flush
-    
     function delete(self)
       % close connection
       flush(self);
@@ -148,18 +138,18 @@ classdef stargo < handle
     end
     
     function v = identify(self)
-      v = mfilename;
-      v = [ v queue(self, { ':GVP#', ':GVN#', ':GVD#' },'sync') ];
+      v = queue(self, [ ':GVP#', ':GVN#', ':GVD#' ]);
+      v = strrep(v, '#', ' ');
       self.version = v;
     end % identify
     
     function [status,fields,cmd] = getstatus(self, flag)
-      % get RA, DEC, Status, mount date
+      % GETSTATUS get the mount status (RA, DEC, Status)
       
       if nargin < 2, flag = 'short'; end
       
       % :X590#    getEqCoordinates        "RD%08lf%08lf"  RA in 1e6  DEC in 1e5
-      cmd = {}; fields = {};
+      cmds = {};
       
       if any(strcmp(flag,{'long','full'}))
         % :Gt#      getSiteLatitude         "%f" -> double
@@ -173,20 +163,32 @@ classdef stargo < handle
         % :TTGMX#   get system slew speed   %da%d
         % :X22#     get guiding speed       %db%d
         % :X39#     get side of pier        P%c
-        cmd = {'Gt','Gg','TTGFh','GW','TTGFr','TTGFs','X34', ...
-          'X38','TTGMX','X22','X39'};
-        
-        fields = {'site_latitude','site_longitude','status_st4', ...
-          'status_alignment','status_keypad','status_meridian', ...
-          'status_motor','status_park', ...
-          'speed_slew', 'speed_guiding','status_invert'};
-        
-        % status = cell2struct(values,fields,2);
+        cmds = { ...
+          'Gt',     'site_latitude',    '%dt%d:%d', ...
+          'Gg',     'site_longitude',   '%dg%d:%d', ...
+          'TTGFh',  'status_st4',       'vh%d', ...
+          'GW',     'status_alignment', '%c%c%d', ...
+          'TTGFr',  'status_keypad',    'vr%d' ...
+          'TTGFs',  'status_meridian',  'vs%d', ...
+          'X38',    'status_park',      'p%d', ...
+          'TTGMX',  'speed_slew',       '%da%d', ...
+          'X22',    'speed_guiding',    '%db%d', ...
+          'X39',    'status_invert',    'P%c', ...
+        };
       end
-      cmd{end+1}    = 'X590';
-      fields{end+1} = 'status_radec';
+      cmds{end+1}   = 'X590'; % RA DEC
+      cmds{end+1}   = 'status_radec';
+      cmds{end+1}   = 'RD%d+%d';
+      
+      cmds{end+1}   = 'X34';  % Motors status
+      cmds{end+1}   = 'status_motor';
+      cmds{end+1}   = 'm%d%d';
+      
+      cmd    = cmds(1:3:(end-2));
+      fields = cmds(2:3:(end-1));
       
       cmd = strcat(':', cmd, '#');
+      % send all status requests
       status = queue(self, cmd);
       status = textscan(status,'%s','Delimiter','#');
       status = status{1};
@@ -196,26 +198,43 @@ classdef stargo < handle
       if numel(status) == numel(fields)
         status = cell2struct(status', fields, 2);
       end
+      self.state = status;
+      
+      % now interpret state values
       
     end % getstatus
     
     function gotoradec(self, ra, dec)
+      % GOTARADEC send the mount to given RA,DEC coordinates or named object.
     end % gotoradec
     
     function stop(self)
+      % STOP stop any mount move.
     end % stop
     
     function start(self)
-      % :TTGFh#   get ST4 port status
-      % :GW#      get scope alignment status
-      % :TTGFr#   get Keypad status
-      % guiding speed
-      % meridian flip status
-      % aux port status
-      % :X34#     getMotorStatus x y
-      % :X38#     park/home status
-      % :TTGMX#   get system slew speed
+      % START reset/initialise/check the mount
+      getstatus(self, 'full');
     end %start
+    
+    function home(self)
+      % HOME send the mount to its home position (e.g. pointing polar in EQ).
+    end % home
+    
+    function park(self)
+      % PARK send the mount to a reference parking position.
+    end % park
+    
+    function unpark(self)
+      % UNPARK wake up the mount from parking.
+    end % unpark
+    
+    function align(self)
+      sync(self);
+    end % align
+    
+    function sync(self)
+    end % sync
     
     function found = findobj(self, name)
       % FINDOBJ find a given object in catalogs. Select it.
@@ -282,7 +301,7 @@ end % classdef
 % ------------------------------------------------------------------------------
 
 function catalogs = getcatalogs
-  % getcatalogs: load catalogs for stars and DSO.
+  % GETCATALOGS load catalogs for stars and DSO.
 
   % stored here so that they are not loaded for further calls
   persistent loaded_catalogs  
@@ -312,4 +331,34 @@ function catalogs = getcatalogs
   loaded_catalogs = catalogs;
 end % getcatalogs
 
+function available = getports
+  % GETPORTS find available serial ports.
+  
+  % we use the error code returned by Matlab
+  ME = [];
+  try
+    s = serial('IMPOSSIBLE_PORT'); fopen(s);
+  catch ME
+    % nop
+  end
+  
+  l = getReport(ME);
+  available = findstr(l, 'Available ports');
+  if ~isempty(available)
+    l = textscan(l(available(1):end),'%s','Delimiter','\n\r');
+    available = l{1};
+  end
+  if iscell(available) available = available{1}; end
+  if isempty(available) 
+    available = 'ERROR: No available serial port. Check connection/reconnect.'; 
+  end
+end % getports
 
+function str = flush(self)
+  % FLUSH read the return values from device
+  com = self.serial;
+  str = '';
+  while com.BytesAvailable
+    str = [ str fscanf(com) ];
+  end
+end % flush
