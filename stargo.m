@@ -190,18 +190,27 @@ classdef stargo < handle
       cmd = strcat(':', cmd, '#');
       % send all status requests
       status = queue(self, cmd);
+      
       status = textscan(status,'%s','Delimiter','#');
       status = status{1};
       if isempty(status{end}) && numel(status) == numel(cmd)+1
         status(end) = [];
       end
-      if numel(status) == numel(fields)
-        status = cell2struct(status', fields, 2);
-      end
-      self.state = status;
       
       % now interpret state values
-      
+      fmt = cmds(3:3:end);
+
+      % build a struct
+      if numel(status) == numel(fields)
+        state = cell2struct(status', fields, 2);
+        values = cell(size(fields));
+        for index=1:numel(fields)
+          values{index) = sscanf(status{index}, fmt{index});
+        end
+      else state = status; values=[];
+      end
+      self.state = state;
+
     end % getstatus
     
     function gotoradec(self, ra, dec)
