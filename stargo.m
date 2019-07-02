@@ -25,19 +25,17 @@ classdef stargo < handle
   properties
     dev       = 'COM1'; 
     version   = '';
-    place     = {};       % GPS location and hour shift/UTC
     UserData  = [];
     serial    = [];       % the serial object
     state     = [];       % detailed controller state (raw)
     bufferSent = [];
     bufferRecv = '';
-    
   end % properties
   
   properties(Access=private)
-    timer     = [];       % the current Timer object which sends a getstatus regularly
+    timer      = [];       % the current Timer object which sends a getstatus regularly
     
-    start_time= datestr(now);
+    start_time = datestr(now);
 
   end % properties
   
@@ -76,8 +74,8 @@ classdef stargo < handle
       end
       sb.serial.Terminator = '#';
       identify(sb);
-      disp([ '[' datestr(now) '] ' sb.version ' connected to ' sb.dev ]);
-      % start(sb);
+      disp([ '[' datestr(now) '] ' mfilename ': ' sb.version ' connected to ' sb.dev ]);
+      getstatus(sb,'full');
       
     end % stargo
     
@@ -99,7 +97,7 @@ classdef stargo < handle
       for index=1:numel(cmd)
         argin = numel(find(cmd(index).send == '%'));
         if argin ~= numel(varargin)
-          disp([ '[' datestr(now) '] WARNING: write: command ' cmd(index).send ...
+          disp([ '[' datestr(now) '] WARNING: ' mfilename '.write: command ' cmd(index).send ...
             ' requires ' str2num(argin) ' arguments but only ' ...
             num2str(numel(varargin)) ' are given.' ]);
         else
@@ -112,7 +110,7 @@ classdef stargo < handle
       end
     end % write
     
-    function val = read(self)
+    function [val, self] = read(self)
       % READ receives the output from the serial port.
       
       % this can be rather slow as there are pause calls.
@@ -134,9 +132,15 @@ classdef stargo < handle
       % store output
       self.bufferRecv = strtrim([ self.bufferRecv val ]);
       % interpret results
-      parseparams(self);
-      val = strrep(val, '#',' ');
+      [p, self] = parseparams(self);
+      val = strtrim(strrep(val, '#',' '));
     end % read
+    
+    function val = queue(self, cmd, varargin)
+      % QUEUE sends a single command, returns the answer.
+      write(self, cmd, varargin{:});
+      [val, self] = read(self);
+    end % queue
     
     function out = strcmp(self, in)
       % STRCMP identify commands within available ones.
@@ -147,7 +151,7 @@ classdef stargo < handle
       if isstruct(in) && isfield(in,'send'), out = in; return;
       elseif isnumeric(in), out = self.commands(in); return;
       elseif ~ischar(in) && ~iscellstr(in)
-        error([ '[' datestr(now) '] WARNING: strcmp: invalid input type ' class(in) ]);
+        error([ '[' datestr(now) '] WARNING: ' mfilename '.strcmp: invalid input type ' class(in) ]);
       end
       in = cellstr(in);
       out = [];
@@ -159,7 +163,7 @@ classdef stargo < handle
         if numel(tok) == 1
           out = [ out self.commands(tok) ];
         else
-          disp([ '[' datestr(now) '] WARNING: strcmp: can not find command ' this_in ' in list of available ones.' ]);
+          disp([ '[' datestr(now) '] WARNING: ' mfilename '.strcmp: can not find command ' this_in ' in list of available ones.' ]);
           out.name = 'custom command';
           out.send = this_in;
           out.recv = '';
@@ -174,7 +178,7 @@ classdef stargo < handle
       fclose(self.serial)
     end
 
-    function p = parseparams(self)
+    function [p,self] = parseparams(self)
       % PARSEPARAMS interpret output and decode it.
       recv = self.bufferRecv; p=[];
       if isempty(recv), return; end
@@ -188,6 +192,7 @@ classdef stargo < handle
         if isempty(recv{indexR}), continue; end
         for indexS=1:numel(allSent)
           sent = allSent(indexS); tok = [];
+          if any(indexS == toremove), continue; end
           if isempty(sent.recv), continue; end
           try
             % look for an expected output 'sent' in the actual output 'recv'
@@ -221,12 +226,13 @@ classdef stargo < handle
       end
     end % parseparams
     
-    % commands -----------------------------------------------------------------
+    % GET commands -------------------------------------------------------------
     
     function v = identify(self)
       % IDENTIFY reads the StarGo identification string.
       write(self, {'get_manufacturer','get_firmware','get_firmwaredate'});
       self.version = read(self);
+      v = self.version;
     end % identify
     
     function val = getstatus(self, option)
@@ -239,7 +245,6 @@ classdef stargo < handle
       if isempty(option), option='short'; end
       
       switch option
-      
       case {'long','full','all'}
         list = { 'get_radec', 'get_motors', 'get_site_latitude', 'get_site_longitude', ...
           'get_st4', 'get_alignment', 'get_keypad', 'get_meridian', 'get_park', ...
@@ -251,7 +256,113 @@ classdef stargo < handle
       end
       write(self, list);
       val = read(self);
+      notify(self,'updated')
     end % getstatus
+    
+    % SET commands -------------------------------------------------------------
+    function stop(self)
+      % STOP stop/abport any mount move.
+      write(self,'abort');
+      disp([ '[' datestr(now) '] ' mfilename '.stop: ABORT.' ]);
+    end % stop
+    
+    function ret=park(self, option)
+      % PARK send the mount to a reference PARK position.
+      %   PARK(s) sends the mount to its PARK position.
+      %
+      %   PARK(s,'park') is the same as above (send to park position).
+      %
+      %   PARK(s,'unpark') wakes-up mount from park position.
+      %
+      %   PARK(s,'set') sets park position as the current position.
+      %
+      %   PARK(s,'get') gets park position status.
+      if nargin < 2, option = 'park'; end
+      if     strcmp(option, 'set'), option = 'set_park_pos';
+      elseif strcmp(option, 'get'), option = 'get_park'; end
+      ret = queue(self, option);
+      disp([ '[' datestr(now) '] ' mfilename '.park: ' option ]);
+    end % park
+    
+    function ret=unpark(self)
+      %   UNPARK wakes-up mount from park position.
+      ret = park(self, 'unpark');
+    end % unpark
+    
+    function ret=home(self, option)
+      % HOME send the mount to its HOME position.
+      %   HOME(s) sends the mount to its HOME position.
+      %
+      %   HOME(s,'home') is the same as above (send to home position).
+      %
+      %   HOME(s,'set') sets HOME position as the current position.
+      %
+      %   HOME(s,'get') gets HOME position status.
+      if nargin < 2, option = 'send'; end
+      if     strcmp(option, 'set'), option = 'set_home_pos';
+      elseif strcmp(option, 'get'), option = 'get_park'; end
+      ret = []; 
+      ret = queue(self, option);
+      disp([ '[' datestr(now) '] ' mfilename '.home: ' option ]);
+    end % home
+    
+    % Other commands -----------------------------------------------------------
+    
+    function found = findobj(self, name)
+      % FINDOBJ find a given object in catalogs. Select it.
+      %   id = findobj(sc, name) search for a given object and return ID
+      catalogs = fieldnames(self.catalogs);
+      found = [];
+      
+      % check first for name without separator
+      if ~any(name == ' ')
+        [n1,n2]  = strtok(name, '0123456789');
+        found = findobj(self, [ n1 ' ' n2 ]);
+        if ~isempty(found) return; end
+      end
+      namel= strtrim(lower(name));
+      for f=catalogs(:)'
+        catalog = self.catalogs.(f{1});
+        if ~isfield(catalog, 'MAG'), continue; end
+        NAME = lower(catalog.NAME);
+        NAME = regexprep(NAME, '\s*',' ');
+        % search for name
+        index = find(~cellfun(@isempty, strfind(NAME, [ ';' namel ';' ])));
+        if isempty(index)
+        index = find(~cellfun(@isempty, strfind(NAME, [ namel ';' ])));
+        end
+        if isempty(index)
+        index = find(~cellfun(@isempty, strfind(NAME, [ ';' namel ])));
+        end
+        if isempty(index)
+        index = find(~cellfun(@isempty, strfind(NAME, [ namel ])));
+        end
+        if ~isempty(index)
+          found.index   = index(1);
+          found.catalog = f{1};
+          found.RA      = catalog.RA(found.index);
+          found.DEC     = catalog.DEC(found.index);
+          found.MAG     = catalog.MAG(found.index);
+          found.TYPE    = catalog.TYPE{found.index};
+          found.NAME    = catalog.NAME{found.index};
+          found.DIST    = catalog.DIST(found.index);
+          break;
+        end
+      end
+
+      if ~isempty(found)
+        disp([ mfilename ': Found object ' name ' as: ' found.NAME ])
+        if found.DIST > 0
+          disp(sprintf('  %s: Magnitude: %.1f ; Type: %s ; Dist: %.3g [ly]', ...
+            found.catalog, found.MAG, found.TYPE, found.DIST*3.262 ));
+        else
+          disp(sprintf('  %s: Magnitude: %.1f ; Type: %s', ...
+            found.catalog, found.MAG, found.TYPE ));
+        end
+      else
+        disp([ mfilename ': object ' name ' was not found.' ])
+      end
+    end % findobj
 
   end % methods
   
@@ -315,7 +426,7 @@ function c = getcommands
     'get_speed_guiding',            'X22',        '%db%d','query guiding speeds(ra,dec)';   
     'get_speed_slew',               'TTGMX',      '%da%d','query slewing speed(xx=6,8,9,12,yy)';    
     'get_st4',                      'TTGFh',      'vh%1d','query ST4 status(TF)';  
-    'set_date',                     'SC %02d%02d%02d','0','set local date(mm,dd,yy)';
+    'set_date',                     'SC %02d%02d%02d','','set local date(mm,dd,yy)(0)';
     'set_dec',                      'Sd%+03d*%02d:%02d', '','set DEC(dd,mm,ss)';
     'set_guiding_speed_dec',        'X21%2d',     '','set DEC speed(dd percent)';
     'set_guiding_speed_ra',         'X20%2d',     '','set RA speed(dd percent)';
@@ -327,7 +438,7 @@ function c = getcommands
     'set_meridianflip_forced_on',   'TTSFd',      '','enable meridian flip forced';     
     'set_meridianflip_off',         'TTRFs',      '','disable meridian flip';     
     'set_meridianflip_on' ,         'TTSFs',      '','enable meridian flip';     
-    'set_park_pos',                 'X352',       '0','sync park position';
+    'set_park_pos',                 'X352',       '','sync park position (0)';
     'set_pulse_east',               'Mge%04u',    '','move east for (t msec)';
     'set_pulse_north',              'Mgn%04u',    '','move north for (t msec)';
     'set_pulse_south',              'Mgs%04u',    '','move south for (t msec)';
@@ -355,8 +466,9 @@ function c = getcommands
     'set_tracking_sidereal',        'TQ',         '','set tracking sidereal';
     'set_tracking_solar',           'TS',         '','set tracking solar';
     'set_UTFoffset',                'SG %+03d',   '','set UTF offset(hh)';
-    'home',                         'X361',       'pA','send mount to home';
-    'park',                         'X362',       'pB','send mount to park';
+    'abort',                        'Q',          '','abort current move'; 
+    'home',                         'X361',       '','send mount to home (pA)';
+    'park',                         'X362',       '','send mount to park (pB)';
     'start_slew_east',              'Me',         '','start to move east';
     'start_slew_north'              'Mn',         '','start to move north';     
     'start_slew_south'              'Ms',         '','start to move south';   
@@ -366,7 +478,7 @@ function c = getcommands
     'stop_slew_south',              'Qs',         '','stop to move south';
     'stop_slew_west',               'Qw',         '','stop to move west';
     'sync',                         'CM',         '','sync (align), i.e. indicate we are on last target';
-    'unpark',                       'X370',       'p0','wake up from park';  
+    'unpark',                       'X370',       '','wake up from park (p0)';  
     'get_localdate',                'GC',         '%d%c%d%c%d', 'invalid:query Local date(mm,dd,yy)';
     'get_locattime',                'GL',         '%2d:%2d:%2d','invalid:query local time(hh,mm,ss)';
     'get_tracking_freq',            'GT',         '%f','invalid:query tracking frequency';
