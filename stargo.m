@@ -30,6 +30,7 @@ classdef stargo < handle
     state     = [];       % detailed controller state (raw)
     bufferSent = [];
     bufferRecv = '';
+    verbose   = false;
   end % properties
   
   properties(Access=private)
@@ -102,6 +103,10 @@ classdef stargo < handle
             num2str(numel(varargin)) ' are given.' ]);
         else
           fprintf(self.serial, cmd(index).send, varargin{:}); % SEND
+          if self.verbose
+            c = sprintf(cmd(index).send, varargin{:});
+            disp( [ mfilename '.write: ' cmd(index).name ' "' c '"' ]);
+          end
           % register expected output for interpretation.
           if ~isempty(cmd(index).recv) && ischar(cmd(index).recv)
             self.bufferSent = [ self.bufferSent cmd(index) ]; 
@@ -134,6 +139,9 @@ classdef stargo < handle
       % interpret results
       [p, self] = parseparams(self);
       val = strtrim(strrep(val, '#',' '));
+      if self.verbose
+        disp([ mfilename '.read ' val ]);
+      end
     end % read
     
     function val = queue(self, cmd, varargin)
@@ -186,7 +194,16 @@ classdef stargo < handle
       recv = textscan(recv,'%s','Delimiter','# ','MultipleDelimsAsOne',true);
       recv = recv{1};
       if isempty(recv), return; end
-      allSent = self.bufferSent; toremove = [];
+      
+      % check if we have a Z1 status string in received buffer
+      toremove = [];
+      if ~isempty(strfind(recv, 'Z1'))
+        % Z1: we append a Z1 parsing rule.
+        self.bufferSent(end+1) = struct('name', 'get_status', ...
+          'send', '', 'recv', ':Z1%1d%1d%1d', 'comment','status [motors=OFF,DEC,RA,all_ON,track=OFF,Moon,Sun,Star,speed=Guide,Center,Find,Max]');
+        toremove = numel(self.bufferSent); % will remove Z1 afterwards
+      end
+      allSent = self.bufferSent; 
       % we search for a pattern in sent that matches the actual recieved string
       for indexR=1:numel(recv)
         if isempty(recv{indexR}), continue; end
@@ -230,8 +247,7 @@ classdef stargo < handle
     
     function v = identify(self)
       % IDENTIFY reads the StarGo identification string.
-      write(self, {'get_manufacturer','get_firmware','get_firmwaredate'});
-      self.version = read(self);
+      self.version = queue(self, {'get_manufacturer','get_firmware','get_firmwaredate'});
       v = self.version;
     end % identify
     
@@ -254,17 +270,27 @@ classdef stargo < handle
       otherwise % {'short','fast'}
         list = {'get_radec','get_motors','get_ra','get_dec'};
       end
-      write(self, list);
-      val = read(self);
-      notify(self,'updated')
+      val = queue(self, list);
+      notify(self,'updated');
     end % getstatus
     
     % SET commands -------------------------------------------------------------
     function stop(self)
-      % STOP stop/abport any mount move.
+      % STOP stop/abort any mount move.
       write(self,'abort');
       disp([ '[' datestr(now) '] ' mfilename '.stop: ABORT.' ]);
+      self.bufferSent = [];
+      self.bufferRecv = '';
     end % stop
+    
+    function start(self)
+      % START reset mount to its startup state.
+      queue(self, {'set_speed_guide','set_tracking_sidereal','set_tracking_on', ...
+        'set_highprec', 'set_keypad_on', 'set_st4_on','set_system_speed_medium'});
+      disp([ '[' datestr(now) '] ' mfilename '.start: Mount reset OK.' ]);
+      self.bufferSent = [];
+      self.bufferRecv = '';
+    end % start
     
     function ret=park(self, option)
       % PARK send the mount to a reference PARK position.
@@ -274,14 +300,14 @@ classdef stargo < handle
       %
       %   PARK(s,'unpark') wakes-up mount from park position.
       %
-      %   PARK(s,'set') sets park position as the current position.
+      %   PARK(s,'set') defines park position as the current position.
       %
       %   PARK(s,'get') gets park position status.
       if nargin < 2, option = 'park'; end
       if     strcmp(option, 'set'), option = 'set_park_pos';
       elseif strcmp(option, 'get'), option = 'get_park'; end
       ret = queue(self, option);
-      disp([ '[' datestr(now) '] ' mfilename '.park: ' option ]);
+      disp([ '[' datestr(now) '] ' mfilename '.park: ' option ' returned ' ret ]);
     end % park
     
     function ret=unpark(self)
@@ -301,10 +327,66 @@ classdef stargo < handle
       if nargin < 2, option = 'send'; end
       if     strcmp(option, 'set'), option = 'set_home_pos';
       elseif strcmp(option, 'get'), option = 'get_park'; end
-      ret = []; 
       ret = queue(self, option);
-      disp([ '[' datestr(now) '] ' mfilename '.home: ' option ]);
+      disp([ '[' datestr(now) '] ' mfilename '.home: ' ' returned ' ret ]);
+      getstatus(self);
     end % home
+    
+    function align(self)
+      % ALIGN synchronise current location with last target (sync).
+      sync(self);
+    end % align
+    
+    function sync(self)
+      % SYNC synchronise current location with last target.
+      write(self, 'sync');
+      disp([ '[' datestr(now) '] ' mfilename '.sync: OK' ]);
+    end % sync
+    
+    function ret = zoom(self, level)
+      % ZOOM set (or get) slew speed. Level should be 0,1,2 or 3.
+      %   ZOOM(s) returns the zoom level (slew speed)
+      %
+      %   ZOOM(s, level) sets the zoom level (1-4)
+      if nargin < 2
+        ret = queue(self, 'get_speed_slew');
+        return
+      else
+        z = {'set_speed_guide','set_speed_center','set_speed_find','set_speed_max'};
+        if any(level == 1:4)
+          write(self, z{level});
+          disp([ '[' datestr(now) '] ' mfilename '.zoom: ' z{level} ]);
+        end
+      end
+    end % zoom
+    
+    function move(self, nsew, msec)
+      % MOVE slew the mount in N/S/E/W directions
+      %   MOVE(s, 'dir') moves the mount in given direction. The direction can be
+      %   'n', 's','e','w' for the North, South, East, West.
+      %
+      %   MOVE(s, 'dir stop') stops the movement in given direction, as above.
+      %
+      %   MOVE(s, 'dir', msec) moves the mount in given direction for given time
+      %   in [msec].
+      if nargin > 1
+        if strcmp(lower(nsew),'stop') stop(self); return; end
+        index= find(lower(nsew(1)) == 'nsew');
+        dirs = {'north','south','east','west'};
+        if isempty(index), return; end
+      end
+      if nargin == 3 && msec > 0
+        cmd = [ 'set_pulse_' dirs{index} ];
+        write(self, cmd, msec);
+      elseif nargin == 2
+        if ~isempty(strfind(lower(nsew),'stop'))
+          cmd = [ 'stop_slew_' dirs{index} ];
+        else
+          cmd = [ 'start_slew_' dirs{index} ];
+        end
+        write(self, cmd);
+      end
+    end % move
     
     % Other commands -----------------------------------------------------------
     
