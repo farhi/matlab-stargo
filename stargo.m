@@ -102,11 +102,13 @@ classdef stargo < handle
             ' requires ' str2num(argin) ' arguments but only ' ...
             num2str(numel(varargin)) ' are given.' ]);
         else
-          fprintf(self.serial, cmd(index).send, varargin{:}); % SEND
+          c = sprintf(cmd(index).send, varargin{:});
           if self.verbose
-            c = sprintf(cmd(index).send, varargin{:});
+            
             disp( [ mfilename '.write: ' cmd(index).name ' "' c '"' ]);
           end
+          fprintf(self.serial, c); % SEND
+          
           % register expected output for interpretation.
           if ~isempty(cmd(index).recv) && ischar(cmd(index).recv)
             self.bufferSent = [ self.bufferSent cmd(index) ]; 
@@ -146,6 +148,7 @@ classdef stargo < handle
     
     function val = queue(self, cmd, varargin)
       % QUEUE sends a single command, returns the answer.
+      if nargin == 1, val = read(self); return; end
       write(self, cmd, varargin{:});
       [val, self] = read(self);
     end % queue
@@ -387,6 +390,24 @@ classdef stargo < handle
         write(self, cmd);
       end
     end % move
+    
+    function setra(self, varargin)
+      % SETRA move to Right Ascension
+      %   SETRA(s, H,M,S) sends the mount to H:M:S RA coordinates
+      
+      if nargin == 4 && all(cellfun(@isnumeric,varargin))
+        write(self, 'set_ra', varargin{:});
+      end
+    end % setra
+    
+    function setdec(self, varargin)
+      % SETDEC move to Declinaison
+      %   SETDEC(s, H,M,S) sends the mount to H:M:S DEC coordinates
+      
+      if nargin == 4 && all(cellfun(@isnumeric,varargin))
+        write(self, 'set_dec', varargin{:});
+      end
+    end % setra
     
     % Other commands -----------------------------------------------------------
     
