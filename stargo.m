@@ -25,29 +25,40 @@ classdef stargo < handle
   properties
     dev       = 'COM1'; 
     version   = '';
+    longitude = [];
+    latitude  = [];
+    UTCoffset = 0;
+    date      = 0;
+    time      = 0;
+    julian_day= 0;
     UserData  = [];
-    serial    = [];       % the serial object
+    
     state     = [];       % detailed controller state (raw)
-    bufferSent = [];
-    bufferRecv = '';
     verbose   = false;
+    target_ra = [];
+    target_dec= [];
+    target_name = '';
   end % properties
   
   properties(Access=private)
     timer      = [];       % the current Timer object which sends a getstatus regularly
-    
+    bufferSent = [];
+    bufferRecv = '';
     start_time = datestr(now);
-
+    serial    = [];       % the serial object
   end % properties
   
-  properties (Constant=true)
+  properties (Constant=true,Access=private)
     catalogs       = getcatalogs;       % load catalogs at start
     % commands: field, input_cmd, output_fmt, description
     commands       = getcommands;
   end % shared properties        
                 
-  events            
-    gotoReached     
+  events
+    gotoStart        
+    gotoReached  
+    moving
+    idle   
     updated   
   end              
   
@@ -78,6 +89,15 @@ classdef stargo < handle
       disp([ '[' datestr(now) '] ' mfilename ': ' sb.version ' connected to ' sb.dev ]);
       getstatus(sb,'full');
       
+      place = getplace; % location guess from the network
+      if isempty(place)
+        % display dialogue to confirm longitude, latitude, local time, and time saving shift.
+      else
+        % get place from StarGo
+      end
+      % send longitude and latitude to StarGo. This is needed for the HOME position.
+      % send date, time, time saving shift.
+      
     end % stargo
     
     % I/O stuff ----------------------------------------------------------------
@@ -99,7 +119,7 @@ classdef stargo < handle
         argin = numel(find(cmd(index).send == '%'));
         if argin ~= numel(varargin)
           disp([ '[' datestr(now) '] WARNING: ' mfilename '.write: command ' cmd(index).send ...
-            ' requires ' str2num(argin) ' arguments but only ' ...
+            ' requires ' num2str(argin) ' arguments but only ' ...
             num2str(numel(varargin)) ' are given.' ]);
         else
           c = sprintf(cmd(index).send, varargin{:});
@@ -202,8 +222,13 @@ classdef stargo < handle
       toremove = [];
       if ~isempty(strfind(recv, 'Z1'))
         % Z1: we append a Z1 parsing rule.
-        self.bufferSent(end+1) = struct('name', 'get_status', ...
+        c = struct('name', 'get_status', ...
           'send', '', 'recv', ':Z1%1d%1d%1d', 'comment','status [motors=OFF,DEC,RA,all_ON,track=OFF,Moon,Sun,Star,speed=Guide,Center,Find,Max]');
+        if isempty(self.bufferSent)
+          self.bufferSent = c;
+        else
+          self.bufferSent(end+1) = c;
+        end
         toremove = numel(self.bufferSent); % will remove Z1 afterwards
       end
       allSent = self.bufferSent; 
@@ -327,10 +352,14 @@ classdef stargo < handle
       %   HOME(s,'set') sets HOME position as the current position.
       %
       %   HOME(s,'get') gets HOME position status.
-      if nargin < 2, option = 'send'; end
+      if nargin < 2, option = 'home'; end
       if     strcmp(option, 'set'), option = 'set_home_pos';
       elseif strcmp(option, 'get'), option = 'get_park'; end
-      ret = queue(self, option);
+      if strcmp(option, 'set_home_pos')
+        ret = queue(self, option, getLocalSiderealTime(longitude));
+      else
+        ret = queue(self, option);
+      end
       disp([ '[' datestr(now) '] ' mfilename '.home: ' ' returned ' ret ]);
       getstatus(self);
     end % home
@@ -630,4 +659,46 @@ function str = flush(self)
     str = [ str fscanf(com) ];
   end
 end % flush
+
+function [LST, JD, GST] = getLocalSiderealTime(long, t0)
+  % getLocalSiderealTime compute LST
+  %   getLocalSiderealTime(longitude, [year month day hour minute seconds]) uses
+  %   specified date and time.
+  %
+  %   getLocalSiderealTime(longitude) uses current date and time.
+  if nargin == 1
+    t0 = clock;
+  end
+  year=t0(1); month=t0(2);  day=t0(3); 
+  hour=t0(4);   min=t0(5);  sec=t0(6); 
+  UT = hour + min/60 + sec/3600;
+  J0 = 367*year - floor(7/4*(year + floor((month+9)/12))) ...
+      + floor(275*month/9) + day + 1721013.5;
+  JD = J0 + UT/24;              % Julian Day
+  %fprintf('Julian day = %6.4f [days] \n',JD);
+  JC = (J0 - 2451545.0)/36525;
+  GST0 = 100.4606184 + 36000.77004*JC + 0.000387933*JC^2 - 2.583e-8*JC^3; %[deg]
+  GST0 = mod(GST0, 360);  % GST0 range [0..360]
+  %fprintf('Greenwich sidereal time at 0 hr UT %6.4f [deg]\n',GST0);
+  GST = GST0 + 360.98564724*UT/24;
+  GST = mod(GST, 360);  % GST0 range [0..360]
+  %fprintf('Greenwich sidereal time at UT[hours] %6.4f [deg]\n',GST);
+  LST = GST + long;
+  LST = mod(LST, 360);  % LST range [0..360]
+  %fprintf('Local sidereal time,LST %6.4f [deg]\n',LST);
+end % getLocalSiderealTime
+
+function place = getplace
+  % could also use: https://api.ipdata.co/
+  % is network service available ?
+  ip = java.net.InetAddress.getByName('ip-api.com');
+  if ip.isReachable(1000)
+    ip = urlread('http://ip-api.com/json');
+    ip = parse_json(ip);  % into struct (private)
+    place = [ ip.lon ip.lat ];
+    disp([ mfilename ': You are located in ' ip.city ' ' ip.country ' [long lat]=' num2str(place) ' obtained from http://ip-api.com/json' ]);
+  else
+    place = [];
+  end
+end % end
 
