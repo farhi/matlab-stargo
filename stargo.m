@@ -356,7 +356,16 @@ classdef stargo < handle
       if     strcmp(option, 'set'), option = 'set_home_pos';
       elseif strcmp(option, 'get'), option = 'get_park'; end
       if strcmp(option, 'set_home_pos')
-        ret = queue(self, option, getLocalSiderealTime(longitude));
+        if isfield(self.state, 'get_site_longitude')
+          longitude = double(self.state.get_site_longitude);
+          longitude = longitude(1)+longitude(2)/60+longitude(3)/3600;
+          LST = getLocalSiderealTime(longitude); % in [deg]
+          [h,m,s] = angle2hms(LST);
+          ret = queue(self, option, h,m,floor(s));
+        else
+          disp([ '[' datestr(now) '] ' mfilename '.home: WARNING: longitude is not set yet !' ]);
+          return
+        end
       else
         ret = queue(self, option);
       end
@@ -423,18 +432,46 @@ classdef stargo < handle
     function setra(self, varargin)
       % SETRA move to Right Ascension
       %   SETRA(s, H,M,S) sends the mount to H:M:S RA coordinates
+      %
+      %   SETRA(s, [H,M,S]) sends the mount to H:M:S RA coordinates
+      %
+      %   SETRA(s, deg) sends the mount to RA coordinates given in degrees
       
       if nargin == 4 && all(cellfun(@isnumeric,varargin))
         write(self, 'set_ra', varargin{:});
+      elseif nargin == 2 && isnumeric(varargin{1})
+        ra = varargin{1};
+        if isscalar(ra) == 1, [h,m,s] = angle2hms(ra,'degrees');
+        elseif numel(ra) == 3
+          h=ra(1); h=ra(2); s=ra(3);
+        else
+          disp([ '[' datestr(now) '] ' mfilename '.setra: WARNING: invalid input:' num2str(ra) ]);
+          return
+        end
+        s = floor(s);
+        write(self, 'set_ra', h,m,s);
+        % now we request execution of move: get_slew ":MS#"
       end
     end % setra
     
     function setdec(self, varargin)
       % SETDEC move to Declinaison
-      %   SETDEC(s, H,M,S) sends the mount to H:M:S DEC coordinates
+      %   SETDEC(s, H,M,S) sends the mount to D:M:S DEC coordinates
       
       if nargin == 4 && all(cellfun(@isnumeric,varargin))
         write(self, 'set_dec', varargin{:});
+      elseif nargin == 2 && isnumeric(varargin{1})
+        dec = varargin{1};
+        if isscalar(dec) == 1, [h,m,s] = angle2hms(dec,'degrees'); d=h*24;
+        elseif numel(ra) == 3
+          d=dec(1); h=dec(2); s=dec(3);
+        else
+          disp([ '[' datestr(now) '] ' mfilename '.setdec: WARNING: invalid input:' num2str(dec) ]);
+          return
+        end
+        s = floor(s);
+        write(self, 'set_dec', h,m,s);
+        % now we request execution of move: get_slew ":MS#"
       end
     end % setra
     
@@ -563,7 +600,7 @@ function c = getcommands
     'set_guiding_speed_dec',        'X21%2d',     '','set DEC speed(dd percent)';
     'set_guiding_speed_ra',         'X20%2d',     '','set RA speed(dd percent)';
     'set_highprec',                 'U',          '','switch to high precision';
-    'set_home_pos',                 'X31%s',      '','sync home position';
+    'set_home_pos',                 'X31%02d%02d%02d','','sync home position';
     'set_keypad_off',               'TTSFr',      '','disable keypad';
     'set_keypad_on',                'TTRFr',      '','enable keypad';
     'set_meridianflip_forced_off',  'TTRFd',      '','disable meridian flip forced';  
@@ -660,7 +697,7 @@ function str = flush(self)
   end
 end % flush
 
-function [LST, JD, GST] = getLocalSiderealTime(long, t0)
+function [LST, JD, GST] = getLocalSiderealTime(longitude, t0)
   % getLocalSiderealTime compute LST
   %   getLocalSiderealTime(longitude, [year month day hour minute seconds]) uses
   %   specified date and time.
@@ -683,7 +720,7 @@ function [LST, JD, GST] = getLocalSiderealTime(long, t0)
   GST = GST0 + 360.98564724*UT/24;
   GST = mod(GST, 360);  % GST0 range [0..360]
   %fprintf('Greenwich sidereal time at UT[hours] %6.4f [deg]\n',GST);
-  LST = GST + long;
+  LST = GST + longitude;
   LST = mod(LST, 360);  % LST range [0..360]
   %fprintf('Local sidereal time,LST %6.4f [deg]\n',LST);
 end % getLocalSiderealTime
@@ -701,4 +738,20 @@ function place = getplace
     place = [];
   end
 end % end
+
+function [h,m,s] = angle2hms(ang,in)
+  % angle2hms convert angle from [deg] to hh:mm:ss
+  if nargin < 2, in='hours'; end
+  if strcmp(in, 'hours')
+    ang = ang/24;
+  end
+  h=floor(ang); m=floor((ang-h)*60); s=(ang-h-m/60)*3600;
+end % angle2hms
+
+function ang = hms2angle(h,m,s)
+  % hms2angle convert hh:mm:ss to an angle in [deg]
+  ang = h + m/60 + s/3600;
+  ang = ang*24;
+end % hms2angle
+
 
