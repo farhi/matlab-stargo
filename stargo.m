@@ -206,6 +206,7 @@ classdef stargo < handle
     
     function delete(self)
       % DELETE close connection
+      stop(self);
       fclose(self.serial)
     end
 
@@ -293,7 +294,7 @@ classdef stargo < handle
         list = { 'get_radec', 'get_motors', 'get_site_latitude', 'get_site_longitude', ...
           'get_st4', 'get_alignment', 'get_keypad', 'get_meridian', 'get_park', ...
           'get_speed_slew', 'get_speed_guiding', 'get_sideofpier','get_ra','get_dec', ...
-          'get_meridian_forced', 'get_slew'};
+          'get_meridian_forced'};
         % invalid: get_localdate get_locattime get_UTFoffset get_tracking_freq
       otherwise % {'short','fast'}
         list = {'get_radec','get_motors','get_ra','get_dec'};
@@ -361,7 +362,7 @@ classdef stargo < handle
           longitude = longitude(1)+longitude(2)/60+longitude(3)/3600;
           LST = getLocalSiderealTime(longitude); % in [deg]
           [h,m,s] = angle2hms(LST);
-          ret = queue(self, option, h,m,floor(s));
+          ret = queue(self, option, h,m,s);
         else
           disp([ '[' datestr(now) '] ' mfilename '.home: WARNING: longitude is not set yet !' ]);
           return
@@ -429,51 +430,77 @@ classdef stargo < handle
       end
     end % move
     
-    function setra(self, varargin)
-      % SETRA move to Right Ascension
-      %   SETRA(s, H,M,S) sends the mount to H:M:S RA coordinates
+    function goto(self, ra, dec)
+      % GOTO send the mount to given RA/DEC coordinates.
+      %   GOTO(sb, ra,dec) moves mount to given RA,DEC coordinates in [deg].
+      %   When any or RA or DEC is empty, the other is positioned.
       %
-      %   SETRA(s, [H,M,S]) sends the mount to H:M:S RA coordinates
+      %   GOTO(sb, [H M S], [d m s]) same as above for HH:MM:SS and dd°mm:ss
       %
-      %   SETRA(s, deg) sends the mount to RA coordinates given in degrees
-      
-      if nargin == 4 && all(cellfun(@isnumeric,varargin))
-        write(self, 'set_ra', varargin{:});
-      elseif nargin == 2 && isnumeric(varargin{1})
-        ra = varargin{1};
-        if isscalar(ra) == 1, [h,m,s] = angle2hms(ra,'degrees');
-        elseif numel(ra) == 3
-          h=ra(1); h=ra(2); s=ra(3);
-        else
-          disp([ '[' datestr(now) '] ' mfilename '.setra: WARNING: invalid input:' num2str(ra) ]);
-          return
-        end
-        s = floor(s);
-        write(self, 'set_ra', h,m,s);
-        % now we request execution of move: get_slew ":MS#"
+      %   GOTO(sb, 'hh:mm:ss','dd°mm:ss') same as above with explicit strings
+      %
+      %   GOTO(sb, object_name) searches for object name and moves to it
+      %
+      % When RA and DEC are not given, a dialogue box is shown.
+      if nargin < 3, dec = []; end
+      if nargin < 2, ra  = []; end
+      if isempty(ra) && isempty(dec)
+        NL = sprintf('\n');
+        prompt = {[ '{\bf \color{blue}Enter Right Ascension RA} ' NL ...
+          '(HHhMMmSSs or HH:MM:SS or DD.dd in [deg]) ' NL ...
+          'or {\color{blue}name} such as {\color{red}M 51}' ], ...
+               ['{\bf \color{blue}Enter Declinaison DEC} ' NL ...
+               '(DD°MM''SS" or DD°MM or DD.dd in [deg]' NL ...
+               'or leave {\color{red}empty} when entering name above)' ] };
+        name = 'StarGo: Goto RA/DEC: Set TARGET';
+        options.Resize='on';
+        options.WindowStyle='normal';
+        options.Interpreter='tex';
+        answer=inputdlg(prompt,name, 1, ...
+          {self.target_ra, self.target_dec}, options);
+        if isempty(answer), return; end
+        ra=answer{1}; dec=answer{2};
       end
-    end % setra
-    
-    function setdec(self, varargin)
-      % SETDEC move to Declinaison
-      %   SETDEC(s, H,M,S) sends the mount to D:M:S DEC coordinates
-      
-      if nargin == 4 && all(cellfun(@isnumeric,varargin))
-        write(self, 'set_dec', varargin{:});
-      elseif nargin == 2 && isnumeric(varargin{1})
-        dec = varargin{1};
-        if isscalar(dec) == 1, [h,m,s] = angle2hms(dec,'degrees'); d=h*24;
-        elseif numel(ra) == 3
-          d=dec(1); h=dec(2); s=dec(3);
-        else
-          disp([ '[' datestr(now) '] ' mfilename '.setdec: WARNING: invalid input:' num2str(dec) ]);
-          return
-        end
-        s = floor(s);
-        write(self, 'set_dec', h,m,s);
-        % now we request execution of move: get_slew ":MS#"
+      target_name = '';
+      % from object name
+      if ischar(ra) && isempty(dec) 
+        found = findobj(self, ra);
+        if ~isempty(found), ra = found; end
       end
-    end % setra
+      % from struct (e.g. findobj)
+      if isstruct(ra) && isfield(ra, 'RA') && isfield(ra,'DEC')
+        found = ra;
+        dec = found.RA;
+        ra  = found.DEC;
+        if isfield(found, 'NAME'), target_name = found.NAME; end
+      end
+      [h1,m1,s1] = convert2hms(ra);
+      [h2,m2,s2] = convert2hms(dec);
+      if ~isempty(h1)
+        write(self, 'set_ra',  h1,m1,s1);
+        self.target_ra = [h1 m1 s1];
+        pause(0.25); % make sure commands are received
+        % now we request execution of move: get_slew ":MS#"
+        write(self, 'get_slew');
+      elseif isempty(self.target_ra), self.target_ra=self.state.get_ra;
+      end
+      if ~isempty(h2)
+        write(self, 'set_dec', h2,m2,s2);
+        self.target_dec = [h2 m2 s2];
+        pause(0.25); % make sure commands are received
+        % now we request execution of move: get_slew ":MS#"
+        write(self, 'get_slew');
+        pause(0.25); % make sure commands are received
+      elseif isempty(self.target_dec), self.target_dec=self.state.get_dec;
+      end
+      if isempty(target_name)
+        target_name = [ 'RA' sprintf('_%d', self.target_ra) ' DEC' sprintf('_%d', self.target_dec) ];
+      end
+      self.target_name=target_name;
+      if ~isempty(h1) || ~isempty(h2)
+        getstatus(self); % also flush serial out buffer
+      end
+    end % goto
     
     % Other commands -----------------------------------------------------------
     
@@ -520,7 +547,11 @@ classdef stargo < handle
       end
 
       if ~isempty(found)
-        disp([ mfilename ': Found object ' name ' as: ' found.NAME ])
+        disp([ mfilename ': Found object ' name ' as: ' found.NAME ]);
+        [h1,m1,s1] = angle2hms(found.RA,  'from deg');
+        [h2,m2,s2] = angle2hms(found.DEC, 'from deg');
+        disp(sprintf('  RA=%d:%d:%d [%f deg] ; DEC=%d*%d:%d [%f deg]', ...
+          h1,m1,s1, found.RA, h2*15,m2,s2, found.DEC));
         if found.DIST > 0
           disp(sprintf('  %s: Magnitude: %.1f ; Type: %s ; Dist: %.3g [ly]', ...
             found.catalog, found.MAG, found.TYPE, found.DIST*3.262 ));
@@ -743,15 +774,40 @@ function [h,m,s] = angle2hms(ang,in)
   % angle2hms convert angle from [deg] to hh:mm:ss
   if nargin < 2, in='hours'; end
   if strcmp(in, 'hours')
-    ang = ang/24;
+    ang = ang/15;
   end
-  h=floor(ang); m=floor((ang-h)*60); s=(ang-h-m/60)*3600;
+  h=floor(ang); m=floor((ang-h)*60); s=floor((ang-h-m/60)*3600);
 end % angle2hms
 
 function ang = hms2angle(h,m,s)
   % hms2angle convert hh:mm:ss to an angle in [deg]
   ang = h + m/60 + s/3600;
-  ang = ang*24;
+  ang = ang*15;
 end % hms2angle
 
+function str = repradec(str)
+  %repradec: replace string stuff and get it into num
+  str = lower(str);
+  for rep = {'h','m','s',':','°','deg','d','''','"'}
+    str = strrep(str, rep{1}, ' ');
+  end
+  str = str2num(str);
+end
 
+function [h,m,s] = convert2hms(in)
+  h=[]; m=[]; s=[];
+  if isempty(in), return; end
+  if ischar(in) % from HH:MM:SS
+    str = repradec(in);
+    if isnumeric(str) && all(isfinite(str))
+      in = str;
+    end
+  end
+  if isnumeric(in) 
+    if isscalar(in)
+      [h,m,s] = angle2hms(in,'from deg');
+    elseif numel(in) == 3
+      h=in(1); m=in(2); s=in(3);
+    end
+  end
+end % convert2hms
