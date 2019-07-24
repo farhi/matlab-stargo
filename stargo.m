@@ -504,6 +504,43 @@ classdef stargo < handle
       end
     end % goto
     
+    % GUI and output commands --------------------------------------------------
+    
+    function url=help(self)
+      % HELP open the Help page
+      url = fullfile('file:///',fileparts(which(mfilename)),'doc','StarGo.html');
+      open_system_browser(url);
+    end
+    
+    function about(self)
+      try
+        im = imread(fullfile(fileparts(which(mfilename)),'doc','stargo.jpg'));
+      catch
+        im = '';
+      end
+      msg = { [ 'StarGO ' self.version ], ...
+                'A Matlab interface to control an Avalon StarGO box/mount', ...
+                char(self), ...
+                [ 'On ' self.dev ], ...
+                '(c) E. Farhi GPL2 2019 <https://github.com/farhi/matlab-starbook>' };
+      if ~isempty(im)
+        msgbox(msg,  'About StarGO', 'custom', im);
+      else
+        helpdlg(msg, 'About StarGO');
+      end
+    end % about
+    
+    function url = web(self)
+      % WEB display the starbook RA/DEC target in a web browser (sky-map.org)
+      self.getstatus;
+      url = sprintf([ 'http://www.sky-map.org/?ra=%f&de=%f&zoom=%d' ...
+      '&show_grid=1&show_constellation_lines=1' ...
+      '&show_constellation_boundaries=1&show_const_names=0&show_galaxies=1' ], ...
+      self.ra.h+self.ra.min/60.0, self.dec.deg+self.dec.min/60.0, 9-self.getspeed);
+      % open in system browser
+      open_system_browser(url);
+    end % web
+    
     % Other commands -----------------------------------------------------------
     
     function found = findobj(self, name)
