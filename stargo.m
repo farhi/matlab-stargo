@@ -30,10 +30,10 @@ classdef stargo < handle
     UTCoffset = 0;
     date      = 0;
     time      = 0;
-    julian_day= 0;
     UserData  = [];
     
     state     = [];       % detailed controller state (raw)
+    status    = 'INIT';
     verbose   = false;
     target_ra = [];
     target_dec= [];
@@ -310,6 +310,7 @@ classdef stargo < handle
       disp([ '[' datestr(now) '] ' mfilename '.stop: ABORT.' ]);
       self.bufferSent = [];
       self.bufferRecv = '';
+      notify(self, 'idle');
     end % stop
     
     function start(self)
@@ -386,7 +387,7 @@ classdef stargo < handle
     end % sync
     
     function ret = zoom(self, level)
-      % ZOOM set (or get) slew speed. Level should be 0,1,2 or 3.
+      % ZOOM set (or get) slew speed. Level should be 1,2,3 or 4.
       %   ZOOM(s) returns the zoom level (slew speed)
       %
       %   ZOOM(s, level) sets the zoom level (1-4)
@@ -420,7 +421,7 @@ classdef stargo < handle
       if nargin == 3 && msec > 0
         cmd = [ 'set_pulse_' dirs{index} ];
         write(self, cmd, msec);
-      elseif nargin == 2
+      elseif nargin >= 2
         if ~isempty(strfind(lower(nsew),'stop'))
           cmd = [ 'stop_slew_' dirs{index} ];
         else
@@ -499,6 +500,7 @@ classdef stargo < handle
       self.target_name=target_name;
       if ~isempty(h1) || ~isempty(h2)
         getstatus(self); % also flush serial out buffer
+        notify(self,'gotoStart');
       end
     end % goto
     
@@ -622,7 +624,7 @@ function c = getcommands
     'get_sideofpier',               'X39',        'P%c','query pier side(X=unkown,E=east2east,W=east2west)';  
     'get_site_latitude',            'Gt',         '%dt%d:%d','query Site Latitude';  
     'get_site_longitude',           'Gg',         '%dg%d:%d','query Site Longitude';     
-    'get_slew',                     'MS',         '%d','query slewing state(0=slewing)';     
+    'get_slew',                     'MS',         '%d','query slewing state(0=slewing) and start move';     
     'get_speed_guiding',            'X22',        '%db%d','query guiding speeds(ra,dec)';   
     'get_speed_slew',               'TTGMX',      '%da%d','query slewing speed(xx=6,8,9,12,yy)';    
     'get_st4',                      'TTGFh',      'vh%1d','query ST4 status(TF)';  
