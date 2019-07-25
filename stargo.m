@@ -313,15 +313,20 @@ classdef stargo < handle
       self.bufferSent = [];
       self.bufferRecv = '';
       notify(self, 'idle');
+      pause(1);
+      getstatus(self, 'full');
     end % stop
     
     function start(self)
       % START reset mount to its startup state.
+      stop(self);
       queue(self, {'set_speed_guide','set_tracking_sidereal','set_tracking_on', ...
         'set_highprec', 'set_keypad_on', 'set_st4_on','set_system_speed_medium'});
       disp([ '[' datestr(now) '] ' mfilename '.start: Mount reset OK.' ]);
       self.bufferSent = [];
       self.bufferRecv = '';
+      pause(1);
+      getstatus(self, 'full');
     end % start
     
     function ret=park(self, option)
@@ -396,13 +401,22 @@ classdef stargo < handle
       if nargin < 2
         ret = queue(self, 'get_speed_slew');
         return
-      else
-        z = {'set_speed_guide','set_speed_center','set_speed_find','set_speed_max'};
-        if any(level == 1:4)
-          write(self, z{level});
-          disp([ '[' datestr(now) '] ' mfilename '.zoom: ' z{level} ]);
-        end
+      elseif strcmp(level, 'in')
+        ret = queue(self, 'get_speed_slew');
+        level = max(0,ret-1);
+      elseif strcmp(level, 'out')
+        ret = queue(self, 'get_speed_slew');
+        level = min(3,ret+1);
       end
+      if ~isnumeric(level), ret=[]; return; end
+      
+      z = {'set_speed_guide','set_speed_center','set_speed_find','set_speed_max'};
+      if any(level == 1:4)
+        write(self, z{level});
+        disp([ '[' datestr(now) '] ' mfilename '.zoom: ' z{level} ]);
+        ret = level;
+      end
+
     end % zoom
     
     function move(self, nsew, msec)
