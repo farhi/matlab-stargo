@@ -38,6 +38,8 @@ classdef stargo < handle
     target_ra = [];
     target_dec= [];
     target_name = '';
+    ra        = [];
+    dec       = [];
   end % properties
   
   properties(Access=private)
@@ -464,9 +466,9 @@ classdef stargo < handle
       end
       target_name = '';
       % from object name
-      if ischar(ra) && isempty(dec) 
+      if ischar(ra) && any(ra == '0123456789+-')
         found = findobj(self, ra);
-        if ~isempty(found), ra = found; end
+        if ~isempty(found), ra = found; dec = ''; end
       end
       % from struct (e.g. findobj)
       if isstruct(ra) && isfield(ra, 'RA') && isfield(ra,'DEC')
@@ -519,7 +521,7 @@ classdef stargo < handle
         im = '';
       end
       msg = { [ 'StarGO ' self.version ], ...
-                'A Matlab interface to control an Avalon StarGO box/mount', ...
+                'A Matlab interface to control an Avalon StarGO board.', ...
                 char(self), ...
                 [ 'On ' self.dev ], ...
                 '(c) E. Farhi GPL2 2019 <https://github.com/farhi/matlab-starbook>' };
@@ -530,13 +532,15 @@ classdef stargo < handle
       end
     end % about
     
-    function url = web(self)
+    function url = web(self, url)
       % WEB display the starbook RA/DEC target in a web browser (sky-map.org)
       self.getstatus;
-      url = sprintf([ 'http://www.sky-map.org/?ra=%f&de=%f&zoom=%d' ...
-      '&show_grid=1&show_constellation_lines=1' ...
-      '&show_constellation_boundaries=1&show_const_names=0&show_galaxies=1' ], ...
-      self.ra.h+self.ra.min/60.0, self.dec.deg+self.dec.min/60.0, 9-self.getspeed);
+      if nargin < 2
+        url = sprintf([ 'http://www.sky-map.org/?ra=%f&de=%f&zoom=%d' ...
+        '&show_grid=1&show_constellation_lines=1' ...
+        '&show_constellation_boundaries=1&show_const_names=0&show_galaxies=1' ], ...
+        self.ra, self.dec, 5);
+      end
       % open in system browser
       open_system_browser(url);
     end % web
