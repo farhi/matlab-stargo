@@ -92,14 +92,13 @@ classdef stargo < handle
       getstatus(sb,'full');
       
       place = getplace; % location guess from the network
-      if isempty(place)
-        % display dialogue to confirm longitude, latitude, local time, and time saving shift.
-      else
-        % get place from StarGo
+      if ~isempty(place)
+        if abs(place(1)-sb.longitude) > 1 || abs(place(2)-sb.latitude) > 1
+          disp([ '[' datestr(now) '] WARNING: ' mfilename ': the controller location ' ...
+            mat2str([ sb.longitude sb.latitude ]) ' does not match that from the Network.' ]);
+          disp('  *** Check StarGo/Settings menu item. ***')
+        end
       end
-      % send longitude and latitude to StarGo. This is needed for the HOME position.
-      % send date, time, time saving shift.
-      
     end % stargo
     
     % I/O stuff ----------------------------------------------------------------
@@ -258,7 +257,7 @@ classdef stargo < handle
             elseif iscell(tok) && all(cellfun(@ischar, tok))
               tok = char(tok);
             end
-            self.state.(sent.name) = tok;
+            self.state.(sent.name) = tok; % store in object 'state'
             p.(sent.name)   = tok;
             toremove(end+1) = indexS; % clear this request for search
             recv{indexR}    = [];     % clear this received output as it was found
@@ -272,6 +271,26 @@ classdef stargo < handle
       else
         self.bufferRecv = '';
       end
+      
+      % typical state upon getstatus:
+      %            get_manufacturer: 'Avalon'
+      %           get_firmware: 56.6000
+      %       get_firmwaredate: 'd01122017'
+      %              get_radec: [32463 1]
+      %             get_motors: [1 0]
+      %      get_site_latitude: [48 52 0]
+      %     get_site_longitude: [2 20 0]
+      %                get_st4: 1
+      %          get_alignment: {'P'  'T'  [0]}
+      %             get_keypad: 0
+      %           get_meridian: 0
+      %               get_park: '0'
+      %         get_speed_slew: [8 8]
+      %      get_speed_guiding: [30 30]
+      %         get_sideofpier: 'X'
+      %                 get_ra: [0 1 57]
+      %                get_dec: [0 0 0]
+      %    get_meridian_forced: 0
     end % parseparams
     
     % GET commands -------------------------------------------------------------
@@ -297,12 +316,61 @@ classdef stargo < handle
           'get_st4', 'get_alignment', 'get_keypad', 'get_meridian', 'get_park', ...
           'get_speed_slew', 'get_speed_guiding', 'get_sideofpier','get_ra','get_dec', ...
           'get_meridian_forced'};
-        % invalid: get_localdate get_locattime get_UTFoffset get_tracking_freq
+        % invalid: get_localdate get_locattime get_UTCoffset get_tracking_freq
       otherwise % {'short','fast'}
         list = {'get_radec','get_motors','get_ra','get_dec'};
       end
       val = queue(self, list);
       notify(self,'updated');
+      
+      % transfer main controller status
+      %   RA DEC stored as string for e.g. display in interfaces
+      if isfield(self.state, 'get_radec') && numel(self.state.get_radec) == 2
+        [h1,m1,s1] = angle2hms(double(self.state.get_radec(1))/1e6,'deg');  % in deg
+        [h2,m2,s2] = angle2hms(double(self.state.get_radec(2))/1e5,'deg');
+        self.ra  = sprintf('%d:%d:%f', h1/15,m1,s1);
+        self.dec = sprintf('%d°%d:%f', h2,m2,s2);
+      elseif isfield(self.state, 'get_ra') || isfield(self.state, 'get_dec')
+        if isfield(self.state, 'get_ra')
+          self.ra = sprintf('%d:%d:%f', self.state.get_ra(1)/15, self.state.get_ra(2), self.state.get_ra(3));
+        end
+        if isfield(self.state, 'get_dec')
+          self.dec= sprintf('%d°%d:%f', self.state.get_dec);
+        end
+      end
+      %   motor state and mount status: get_alignment, get_park
+      % 'get_alignment', 'GW', 'query Scope alignment status(mt,tracking,nb_alignments)';
+      %   isTracking = tracking == 'T'
+      % 'get_motors',    'X34','query motors state(0:5==stop,tracking,accel,decel,lowspeed,highspeed)';
+      if isfield(self.state,'get_motors')
+        if any(self.state.get_motors) > 1
+          self.status = 'MOVING';
+        elseif any(self.state.get_motors) == 1
+          self.status = 'TRACK';
+        elseif all(self.state.get_motors) == 0
+          self.status = 'STOPPED';
+        end
+      end
+      % 'get_park',      'X38','query tracking state(0=unparked,1=homed,2=parked,A=slewing,B=slewing2park)';   
+      if isfield(self.state,'get_park')
+        switch self.state.get_park
+        case '1'
+          self.status = 'HOME';
+        case '2'
+          self.status = 'PARK';
+        case 'A'
+          self.status = 'SLEWING';
+        case 'B'
+          self.status = 'PARKING';
+        end
+      end
+      % longitude/latitude
+      if isfield(self.state,'get_site_longitude')
+        self.longitude= hms2angle(double(self.state.get_site_longitude));
+      end
+      if isfield(self.state,'get_site_latitude')
+        self.latitude= hms2angle(double(self.state.get_site_latitude));
+      end
     end % getstatus
     
     % SET commands -------------------------------------------------------------
@@ -480,7 +548,7 @@ classdef stargo < handle
       end
       target_name = '';
       % from object name
-      if ischar(ra) && any(ra == '0123456789+-')
+      if ischar(ra) && ~any(ra(1) == '0123456789+-')
         found = findobj(self, ra);
         if ~isempty(found), ra = found; dec = ''; end
       end
@@ -494,7 +562,7 @@ classdef stargo < handle
       [h1,m1,s1] = convert2hms(ra);
       [h2,m2,s2] = convert2hms(dec);
       if ~isempty(h1)
-        write(self, 'set_ra',  h1,m1,s1);
+        write(self, 'set_ra',  h1,m1,round(s1));
         self.target_ra = [h1 m1 s1];
         pause(0.25); % make sure commands are received
         % now we request execution of move: get_slew ":MS#"
@@ -502,7 +570,7 @@ classdef stargo < handle
       elseif isempty(self.target_ra), self.target_ra=self.state.get_ra;
       end
       if ~isempty(h2)
-        write(self, 'set_dec', h2,m2,s2);
+        write(self, 'set_dec', h2,m2,round(s2));
         self.target_dec = [h2 m2 s2];
         pause(0.25); % make sure commands are received
         % now we request execution of move: get_slew ":MS#"
@@ -522,6 +590,27 @@ classdef stargo < handle
     
     % GUI and output commands --------------------------------------------------
     
+    function c = char(self)
+      c = [ 'RA=' self.ra ' DEC=' self.dec ' ' self.status ];
+    end % char
+    
+    function display(self)
+      % DISPLAY display StarBook object (short)
+      
+      if ~isempty(inputname(1))
+        iname = inputname(1);
+      else
+        iname = 'ans';
+      end
+      if isdeployed || ~usejava('jvm') || ~usejava('desktop') || nargin > 2, id=class(self);
+      else id=[  '<a href="matlab:doc ' class(self) '">' class(self) '</a> ' ...
+                 '(<a href="matlab:methods ' class(self) '">methods</a>,' ...
+                 '<a href="matlab:image(' iname ');">plot</a>,' ...
+                 '<a href="matlab:disp(' iname ');">more...</a>)' ];
+      end
+      fprintf(1,'%s = %s %s\n',iname, id, char(self));
+    end % display
+    
     function url=help(self)
       % HELP open the Help page
       url = fullfile('file:///',fileparts(which(mfilename)),'doc','StarGo.html');
@@ -538,6 +627,7 @@ classdef stargo < handle
                 'A Matlab interface to control an Avalon StarGO board.', ...
                 char(self), ...
                 [ 'On ' self.dev ], ...
+                evalc('disp(self.state)'), ...
                 '(c) E. Farhi GPL2 2019 <https://github.com/farhi/matlab-starbook>' };
       if ~isempty(im)
         msgbox(msg,  'About StarGO', 'custom', im);
@@ -558,6 +648,27 @@ classdef stargo < handle
       % open in system browser
       open_system_browser(url);
     end % web
+    
+    function settings(self)
+      % SETTINGS display a dialogue to set board settings
+      
+      % send longitude and latitude to StarGo. This is needed for the HOME position.
+      
+      % longitude
+      % lattitude
+      % meridian flip
+      % equatorial, al/az
+      % side of pier
+      
+      % send date, time, time saving shift.
+      % 'set_time',                     'SL %02d:%02d:%02d', '0','set local time(hh,mm,ss)';
+      % 'set_date',                     'SC %02d%02d%02d','','set local date(mm,dd,yy)(0)';
+      t = clock;
+      write(self, 'set_date', t(1),t(2),t(3));
+      write(self, 'set_time', t(4),t(5),t(6));
+      % 'set_UTCoffset',                'SG %+03d',   '','set UTC offset(hh)';
+      write(self, 'set_time', t(4),t(5),t(6));
+    end % settings
     
     % Other commands -----------------------------------------------------------
     
@@ -722,7 +833,7 @@ function c = getcommands
     'set_tracking_rate',            'X1E%04d',    '','set tracking rate';
     'set_tracking_sidereal',        'TQ',         '','set tracking sidereal';
     'set_tracking_solar',           'TS',         '','set tracking solar';
-    'set_UTFoffset',                'SG %+03d',   '','set UTF offset(hh)';
+    'set_UTCoffset',                'SG %+03d',   '','set UTC offset(hh)';
     'abort',                        'Q',          '','abort current move'; 
     'home',                         'X361',       '','send mount to home (pA)';
     'park',                         'X362',       '','send mount to park (pB)';
@@ -739,7 +850,7 @@ function c = getcommands
     'get_localdate',                'GC',         '%d%c%d%c%d', 'invalid:query Local date(mm,dd,yy)';
     'get_locattime',                'GL',         '%2d:%2d:%2d','invalid:query local time(hh,mm,ss)';
     'get_tracking_freq',            'GT',         '%f','invalid:query tracking frequency';
-    'get_UTFoffset',                'GG',         '%f','invalid:query UTC offset';
+    'get_UTCoffset',                'GG',         '%f','invalid:query UTC offset';
   };
   c = [];
   for index=1:size(commands,1)
@@ -821,7 +932,7 @@ function place = getplace
     ip = urlread('http://ip-api.com/json');
     ip = parse_json(ip);  % into struct (private)
     place = [ ip.lon ip.lat ];
-    disp([ mfilename ': You are located in ' ip.city ' ' ip.country ' [long lat]=' num2str(place) ' obtained from http://ip-api.com/json' ]);
+    disp([ mfilename ': You are located near ' ip.city ' ' ip.country ' [long lat]=' mat2str(place) ' obtained from http://ip-api.com/json' ]);
   else
     place = [];
   end
@@ -833,13 +944,15 @@ function [h,m,s] = angle2hms(ang,in)
   if strcmp(in, 'hours')
     ang = ang/15;
   end
-  h=floor(ang); m=floor((ang-h)*60); s=floor((ang-h-m/60)*3600);
+  h=floor(ang); m=floor((ang-h)*60); s=(ang-h-m/60)*3600;
 end % angle2hms
 
 function ang = hms2angle(h,m,s)
   % hms2angle convert hh:mm:ss to an angle in [deg]
-  ang = h + m/60 + s/3600;
-  ang = ang*15;
+  if nargin == 1 && numel(h) == 3
+    m = h(2); s=h(3); h=h(1);
+  end
+  ang = double(h) + double(m)/60 + double(s)/3600;
 end % hms2angle
 
 function str = repradec(str)

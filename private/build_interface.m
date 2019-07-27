@@ -1,12 +1,13 @@
 function h = build_interface(self)
 
-  % check if window is already opened
+  % check if window is already opened, then bring to front
   
   % else create
   h = openfig('../stargo.fig')
   
   % mouseUpCallback to detect release of mouse over NSEW buttons
-  set(h, 'Tag','StarGo_window','WindowButtonUpFcn', @(src,evnt)WindowButtonUpFcn(src, evnt,self))
+  set(h, 'Tag','StarGo_window','WindowButtonUpFcn', @(src,evnt)WindowButtonUpFcn(src, evnt,self));
+  % this callback must check if we are indeed over NSEW buttons
   
   % assign button callbacks to private functions
   callbacks = {...
@@ -37,8 +38,59 @@ function h = build_interface(self)
     'Park_goto',           @(src,evnt)park(self,'goto'); ...
     'Park_unpark',         @(src,evnt)unpark(self); ...
     'StarGo_reset',        @(src,evnt)start(self); ...
+    'StarGo_settings',     @(src,evnt)settings(self); ...
     'View_Update',         @(src,evnt)getstatus(self,'full'); ...
     'View_SkyMap',         @(src,evnt)web(self); ...
     'View_Location',       ''; ...
     'View_Help',           @(src,evnt)help(self); ...
     'View_About',          @(src,evnt)about(self) },
+    
+    % uicontrols
+    'stargo_status'
+    'stargo_s'
+    'stargo_n'
+    'stargo_e'
+    'stargo_w'
+    'stargo_stop'
+    'stargo_zoom'
+    'stargo_ra'
+    'stargo_dec'
+    
+    % menus
+    'menu_view'
+    'menu_stargo'
+    'menu_file'
+    'view_about'
+    'view_help'
+    'view_location'
+    'view_skymap'
+    'view_auto_update'
+    'view_update'
+    'stargo_settings'
+    'stargo_reset'
+    'track'
+    'stargo_park'
+    'stargo_home'
+    'stargo_zoom'
+    'stargo_sync'
+    'stargo_stop'
+    'stargo_goto'
+    'file_close'
+    'file_print'
+    'file_saveas'
+    'file_save'
+    'track_none'
+    'track_moon'
+    'track_sun'
+    'track_sidereal'
+    'park_unpark'
+    'park_goto'
+    'park_set'
+    'home_goto'
+    'home_set'
+    'stargo_zoom_max'
+    'stargo_zoom_find'
+    'stargo_zoom_center'
+    'stargo_zoom_guide'
+    'stargo_zoom_out'
+    'stargo_zoom_in'
