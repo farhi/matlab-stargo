@@ -1,16 +1,34 @@
 function h = build_interface(self)
 
-  % check if window is already opened, then bring to front
+  % check if window is already opened
+  h = [ findall(0, 'Tag','StarGo_window') findall(0, 'Tag','StarGo_GUI') ];
+  if ~isempty(h)
+    set(0,'CurrentFigure', h); % make it active
+  else  
+    % else create
+    h = openfig('stargo.fig');
+    
+    % uicontrols
+    Callbacks = { ...
+    'stargo_status' @(src,evnt)getstatus(self,'full'); ...
+    'stargo_s'      @(src,evnt)move(self, 's','pulse'); ...
+    'stargo_n'      @(src,evnt)move(self, 'n','pulse'); ...
+    'stargo_e'      @(src,evnt)move(self, 'e','pulse'); ...
+    'stargo_w'      @(src,evnt)move(self, 'e','pulse'); ...
+    'stargo_stop'   @(src,evnt)stop(self); ...
+    'stargo_zoom'   @(src,evnt)zoom(self, get(gcbo, 'Value')); ...
+    'stargo_ra'     @(src,evnt)goto(self, get(gcbo, 'String'), ''); ...
+    'stargo_dec'    @(src,evnt)goto(self, '', get(gcbo, 'String')); ...
+    'stargo_pulse'  @(src,evnt)pulse(self, get(gcbo, 'String')); ...
+    };
+    
+    build_callbacks(self, h, Callbacks);
+  end
   
-  % else create
-  h = openfig('../stargo.fig')
-  
-  % mouseUpCallback to detect release of mouse over NSEW buttons
-  set(h, 'Tag','StarGo_window','WindowButtonUpFcn', @(src,evnt)WindowButtonUpFcn(src, evnt,self));
-  % this callback must check if we are indeed over NSEW buttons
+  return
   
   % assign button callbacks to private functions
-  callbacks = {...
+  Callbacks = {...
     'StarGo_RA',     @(src,evnt)goto(self, get(gcbo, 'String'), ''); ...
     'StarGo_DEC',    @(src,evnt)goto(self, '', get(gcbo, 'String')); ...
     'StarGo_zoom',   @(src,evnt)zoom(self, get(gcbo, 'Value')); ...
@@ -43,20 +61,10 @@ function h = build_interface(self)
     'View_SkyMap',         @(src,evnt)web(self); ...
     'View_Location',       ''; ...
     'View_Help',           @(src,evnt)help(self); ...
-    'View_About',          @(src,evnt)about(self) },
+    'View_About',          @(src,evnt)about(self) };
     
-    % uicontrols
-    'stargo_status'
-    'stargo_s'
-    'stargo_n'
-    'stargo_e'
-    'stargo_w'
-    'stargo_stop'
-    'stargo_zoom'
-    'stargo_ra'
-    'stargo_dec'
-    
-    % menus
+  % menus
+  Callbacks = { ...
     'menu_view'
     'menu_stargo'
     'menu_file'
@@ -93,4 +101,17 @@ function h = build_interface(self)
     'stargo_zoom_center'
     'stargo_zoom_guide'
     'stargo_zoom_out'
-    'stargo_zoom_in'
+    'stargo_zoom_in' };
+    
+% ------------------------------------------------------------------------------
+
+function build_callbacks(self, h, Callbacks)
+  for index=1:size(Callbacks,1)
+    obj = findobj(h, 'Tag', Callbacks{index,1});
+    if ~isscalar(obj)
+      disp([ mfilename ': Invalid Tag ' Callbacks{index,1} ' in GUI' ])
+    else
+      set(obj, 'Callback', Callbacks{index,2})
+    end
+  end
+

@@ -40,6 +40,8 @@ classdef stargo < handle
     target_name = '';
     ra        = [];
     dec       = [];
+    
+    pulsems   = 0;
   end % properties
   
   properties(Access=private)
@@ -47,7 +49,7 @@ classdef stargo < handle
     bufferSent = [];
     bufferRecv = '';
     start_time = datestr(now);
-    serial    = [];       % the serial object
+    serial     = [];       % the serial object
   end % properties
   
   properties (Constant=true,Access=private)
@@ -99,6 +101,12 @@ classdef stargo < handle
           disp('  *** Check StarGo/Settings menu item. ***')
         end
       end
+      
+      % create the timer for auto update
+      sb.timer  = timer('TimerFcn', @(src,evnt)getstatus(sb), ...
+          'Period', 1.0, 'ExecutionMode', 'fixedDelay', ...
+          'Name', mfilename);
+      start(sb.timer);
     end % stargo
     
     % I/O stuff ----------------------------------------------------------------
@@ -207,8 +215,12 @@ classdef stargo < handle
     
     function delete(self)
       % DELETE close connection
+      h = update_interface(self);
+      stop(self.timer);
+      delete(self.timer);
       stop(self);
-      fclose(self.serial)
+      fclose(self.serial);
+      close(h);
     end
 
     function [p,self] = parseparams(self)
@@ -328,14 +340,14 @@ classdef stargo < handle
       if isfield(self.state, 'get_radec') && numel(self.state.get_radec) == 2
         [h1,m1,s1] = angle2hms(double(self.state.get_radec(1))/1e6,'deg');  % in deg
         [h2,m2,s2] = angle2hms(double(self.state.get_radec(2))/1e5,'deg');
-        self.ra  = sprintf('%d:%d:%f', h1/15,m1,s1);
-        self.dec = sprintf('%d°%d:%f', h2,m2,s2);
+        self.ra  = sprintf('%d:%d:%.1f', h1,m1,s1);
+        self.dec = sprintf('%d°%d:%.1f', h2,m2,s2);
       elseif isfield(self.state, 'get_ra') || isfield(self.state, 'get_dec')
         if isfield(self.state, 'get_ra')
-          self.ra = sprintf('%d:%d:%f', self.state.get_ra(1)/15, self.state.get_ra(2), self.state.get_ra(3));
+          self.ra = sprintf('%d:%d:%.1f', self.state.get_ra(1), self.state.get_ra(2), self.state.get_ra(3));
         end
         if isfield(self.state, 'get_dec')
-          self.dec= sprintf('%d°%d:%f', self.state.get_dec);
+          self.dec= sprintf('%d°%d:%.1f', self.state.get_dec);
         end
       end
       %   motor state and mount status: get_alignment, get_park
@@ -343,11 +355,11 @@ classdef stargo < handle
       %   isTracking = tracking == 'T'
       % 'get_motors',    'X34','query motors state(0:5==stop,tracking,accel,decel,lowspeed,highspeed)';
       if isfield(self.state,'get_motors')
-        if any(self.state.get_motors) > 1
+        if any(self.state.get_motors > 1)
           self.status = 'MOVING';
-        elseif any(self.state.get_motors) == 1
-          self.status = 'TRACK';
-        elseif all(self.state.get_motors) == 0
+        elseif any(self.state.get_motors == 1)
+          self.status = 'TRACKING';
+        elseif all(self.state.get_motors == 0)
           self.status = 'STOPPED';
         end
       end
@@ -357,7 +369,7 @@ classdef stargo < handle
         case '1'
           self.status = 'HOME';
         case '2'
-          self.status = 'PARK';
+          self.status = 'PARKED';
         case 'A'
           self.status = 'SLEWING';
         case 'B'
@@ -371,6 +383,12 @@ classdef stargo < handle
       if isfield(self.state,'get_site_latitude')
         self.latitude= hms2angle(double(self.state.get_site_latitude));
       end
+      
+      % request update of GUI
+      update_interface(self);
+      
+      % make sure our timer is running
+      % if strcmp(self.timer.Running, 'off') start(self.timer); end
     end % getstatus
     
     % SET commands -------------------------------------------------------------
@@ -457,32 +475,50 @@ classdef stargo < handle
     
     function sync(self)
       % SYNC synchronise current location with last target.
+      if isempty(target_name)
+        disp([ mfilename ': WARNING: can not sync before defining a target with GOTO' ]);
+        return
+      end
       write(self, 'sync');
       disp([ '[' datestr(now) '] ' mfilename '.sync: OK' ]);
     end % sync
     
-    function ret = zoom(self, level)
+    function ms=pulse(self, ms)
+      if nargin < 2, ms = self.pulsems; 
+      else 
+        if ischar(ms), ms = str2double(ms); end
+        if isfinite(ms)
+          self.pulsems = ms;
+        end
+      end
+    end % pulsems
+    
+    function level = zoom(self, level)
       % ZOOM set (or get) slew speed. Level should be 1,2,3 or 4.
       %   ZOOM(s) returns the zoom level (slew speed)
       %
       %   ZOOM(s, level) sets the zoom level (1-4)
+      if nargin < 2 || isempty(level)
+        level = queue(self, 'get_speed_slew');
+        level = self.state.get_speed_slew;
+        level = floor(level(1)/3);
+      end
       if nargin < 2
-        ret = queue(self, 'get_speed_slew');
         return
       elseif strcmp(level, 'in')
-        ret = queue(self, 'get_speed_slew');
-        level = max(0,ret-1);
+        level = level-1;      % slower speed
       elseif strcmp(level, 'out')
-        ret = queue(self, 'get_speed_slew');
-        level = min(3,ret+1);
+        level = level+1; % faster
       end
-      if ~isnumeric(level), ret=[]; return; end
+      if ~isnumeric(level), level=[]; return; end
+      if     level < 1, level=1;
+      elseif level > 4, level=4; end
+      level=round(level);
       
       z = {'set_speed_guide','set_speed_center','set_speed_find','set_speed_max'};
       if any(level == 1:4)
         write(self, z{level});
         disp([ '[' datestr(now) '] ' mfilename '.zoom: ' z{level} ]);
-        ret = level;
       end
 
     end % zoom
@@ -502,7 +538,11 @@ classdef stargo < handle
         dirs = {'north','south','east','west'};
         if isempty(index), return; end
       end
+      if strcmp(msec, 'pulse')
+        msec = self.pulsems;
+      end
       if nargin == 3 && msec > 0
+        if msec > 9999, msec=9999; end
         cmd = [ 'set_pulse_' dirs{index} ];
         write(self, cmd, msec);
       elseif nargin >= 2
@@ -605,7 +645,7 @@ classdef stargo < handle
       if isdeployed || ~usejava('jvm') || ~usejava('desktop') || nargin > 2, id=class(self);
       else id=[  '<a href="matlab:doc ' class(self) '">' class(self) '</a> ' ...
                  '(<a href="matlab:methods ' class(self) '">methods</a>,' ...
-                 '<a href="matlab:image(' iname ');">plot</a>,' ...
+                 '<a href="matlab:plot(' iname ');">plot</a>,' ...
                  '<a href="matlab:disp(' iname ');">more...</a>)' ];
       end
       fprintf(1,'%s = %s %s\n',iname, id, char(self));
@@ -635,6 +675,13 @@ classdef stargo < handle
         helpdlg(msg, 'About StarGO');
       end
     end % about
+    
+    function h = plot(self)
+      % PLOT display main StarGo GUI 
+      h = build_interface(self);
+      figure(h); % raise
+      update_interface(self);
+    end % plot
     
     function url = web(self, url)
       % WEB display the starbook RA/DEC target in a web browser (sky-map.org)
@@ -807,10 +854,10 @@ function c = getcommands
     'set_meridianflip_off',         'TTRFs',      '','disable meridian flip';     
     'set_meridianflip_on' ,         'TTSFs',      '','enable meridian flip';     
     'set_park_pos',                 'X352',       '','sync park position (0)';
-    'set_pulse_east',               'Mge%04u',    '','move east for (t msec)';
-    'set_pulse_north',              'Mgn%04u',    '','move north for (t msec)';
-    'set_pulse_south',              'Mgs%04u',    '','move south for (t msec)';
-    'set_pulse_west',               'Mgw%04u',    '','move west for (t msec)';
+    'set_pulse_east',               'Mge%04d',    '','move east for (t msec)';
+    'set_pulse_north',              'Mgn%04d',    '','move north for (t msec)';
+    'set_pulse_south',              'Mgs%04d',    '','move south for (t msec)';
+    'set_pulse_west',               'Mgw%04d',    '','move west for (t msec)';
     'set_ra',                       'Sr%02d:%02d:%02d', '','set RA(hh,mm,ss)';
     'set_sidereal_time',            'X32%02hd%02hd%02hd','','set local sideral time(hexa hh,mm,ss)';
     'set_site_latitude',            'St%+03d*%02d:%02d', '','set site latitude(dd,mm,ss)'; 
