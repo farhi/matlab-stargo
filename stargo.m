@@ -89,6 +89,7 @@ classdef stargo < handle
         return
       end
       sb.serial.Terminator = '#';
+      flush(sb);
       identify(sb);
       disp([ '[' datestr(now) '] ' mfilename ': ' sb.version ' connected to ' sb.dev ]);
       getstatus(sb,'full');
@@ -111,7 +112,7 @@ classdef stargo < handle
     
     % I/O stuff ----------------------------------------------------------------
     
-    function write(self, cmd, varargin)
+    function cout = write(self, cmd, varargin)
       % WRITE sends a single command, does not wait for answer.
       %   WRITE(self, cmd) sends a single command asynchronously.
       %   The command can be a single serial string, or the command name,
@@ -123,6 +124,7 @@ classdef stargo < handle
       %   requires additional arguments.
       
       cmd = strcmp(self, cmd);  % identify command, as a struct array
+      cout = '';
       % send commands one by one
       for index=1:numel(cmd)
         argin = numel(find(cmd(index).send == '%'));
@@ -137,7 +139,7 @@ classdef stargo < handle
             disp( [ mfilename '.write: ' cmd(index).name ' "' c '"' ]);
           end
           fprintf(self.serial, c); % SEND
-          
+          cout = [ cout c ];
           % register expected output for interpretation.
           if ~isempty(cmd(index).recv) && ischar(cmd(index).recv)
             self.bufferSent = [ self.bufferSent cmd(index) ]; 
@@ -216,8 +218,10 @@ classdef stargo < handle
     function delete(self)
       % DELETE close connection
       h = update_interface(self);
-      stop(self.timer);
-      delete(self.timer);
+      if ~isempty(self.timer) 
+        stop(self.timer);
+        delete(self.timer); 
+      end
       stop(self);
       fclose(self.serial);
       close(h);
@@ -595,29 +599,12 @@ classdef stargo < handle
       % from struct (e.g. findobj)
       if isstruct(ra) && isfield(ra, 'RA') && isfield(ra,'DEC')
         found = ra;
-        dec = found.RA;
-        ra  = found.DEC;
+        dec  = found.DEC;
+        ra   = found.RA;
         if isfield(found, 'NAME'), target_name = found.NAME; end
       end
-      [h1,m1,s1] = convert2hms(ra);
-      [h2,m2,s2] = convert2hms(dec);
-      if ~isempty(h1)
-        write(self, 'set_ra',  h1,m1,round(s1));
-        self.target_ra = [h1 m1 s1];
-        pause(0.25); % make sure commands are received
-        % now we request execution of move: get_slew ":MS#"
-        write(self, 'get_slew');
-      elseif isempty(self.target_ra), self.target_ra=self.state.get_ra;
-      end
-      if ~isempty(h2)
-        write(self, 'set_dec', h2,m2,round(s2));
-        self.target_dec = [h2 m2 s2];
-        pause(0.25); % make sure commands are received
-        % now we request execution of move: get_slew ":MS#"
-        write(self, 'get_slew');
-        pause(0.25); % make sure commands are received
-      elseif isempty(self.target_dec), self.target_dec=self.state.get_dec;
-      end
+      h1 = gotora (self, ra);
+      h2 = gotodec(self, dec);
       if isempty(target_name)
         target_name = [ 'RA' sprintf('_%d', self.target_ra) ' DEC' sprintf('_%d', self.target_dec) ];
       end
@@ -763,10 +750,10 @@ classdef stargo < handle
 
       if ~isempty(found)
         disp([ mfilename ': Found object ' name ' as: ' found.NAME ]);
-        [h1,m1,s1] = angle2hms(found.RA,  'from deg');
+        [h1,m1,s1] = angle2hms(found.RA,  'hours');
         [h2,m2,s2] = angle2hms(found.DEC, 'from deg');
-        disp(sprintf('  RA=%d:%d:%d [%f deg] ; DEC=%d*%d:%d [%f deg]', ...
-          h1,m1,s1, found.RA, h2*15,m2,s2, found.DEC));
+        disp(sprintf('  RA=%d:%d:%.1f [%f deg] ; DEC=%d*%d:%.1f [%f deg]', ...
+          h1,m1,s1, found.RA, h2,m2,s2, found.DEC));
         if found.DIST > 0
           disp(sprintf('  %s: Magnitude: %.1f ; Type: %s ; Dist: %.3g [ly]', ...
             found.catalog, found.MAG, found.TYPE, found.DIST*3.262 ));
@@ -1011,8 +998,9 @@ function str = repradec(str)
   str = str2num(str);
 end
 
-function [h,m,s] = convert2hms(in)
+function [h,m,s] = convert2hms(in,hours)
   h=[]; m=[]; s=[];
+  if nargin < 2, in='hours'; end
   if isempty(in), return; end
   if ischar(in) % from HH:MM:SS
     str = repradec(in);
@@ -1022,9 +1010,34 @@ function [h,m,s] = convert2hms(in)
   end
   if isnumeric(in) 
     if isscalar(in)
-      [h,m,s] = angle2hms(in,'from deg');
+      [h,m,s] = angle2hms(in,hours);
     elseif numel(in) == 3
       h=in(1); m=in(2); s=in(3);
     end
   end
 end % convert2hms
+
+function c = gotora(self, ra)
+  [h1,m1,s1] = convert2hms(ra,'hours'); c = '';
+  if ~isempty(h1)
+    c = write(self, 'set_ra',  h1,m1,round(s1));
+    self.target_ra = [h1 m1 s1];
+    pause(0.25); % make sure commands are received
+    % now we request execution of move: get_slew ":MS#"
+    write(self, 'get_slew');
+  elseif isempty(self.target_ra), self.target_ra=self.state.get_ra;
+  end
+end % gotora
+
+function c = gotodec(self, dec)
+  [h2,m2,s2] = convert2hms(dec,'deg'); c = '';
+  if ~isempty(h2)
+    c = write(self, 'set_dec', h2,m2,round(s2));
+    self.target_dec = [h2 m2 s2];
+    pause(0.25); % make sure commands are received
+    % now we request execution of move: get_slew ":MS#"
+    write(self, 'get_slew');
+    pause(0.25); % make sure commands are received
+  elseif isempty(self.target_dec), self.target_dec=self.state.get_dec;
+  end
+end % gotodec
