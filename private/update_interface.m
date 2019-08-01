@@ -23,6 +23,11 @@ function h = update_interface(self)
     obj = findobj(h, 'Tag','stargo_dec_moving');
     set(obj, 'Value', self.state.dec_move >= 1);
     
+    obj = findobj(h, 'Tag','stargo_zoom');
+    if 1 <= self.state.zoom && self.state.zoom <= 4
+      set(obj, 'Value', round(self.state.zoom));
+    end
+    
     % change button labels according to mount type
     % get_alignment(1): A-AzEl mounted, P-Equatorially mounted, G-german mounted equatorial
     if isfield(self.state, 'get_alignment') && iscell(self.state.get_alignment)

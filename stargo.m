@@ -90,6 +90,7 @@ classdef stargo < handle
       sb.state.pulsems     = 0;
       sb.state.ra_move     = 0;
       sb.state.dec_move    = 0;
+      sb.state.zoom        = 1;
       flush(sb);
       identify(sb);
       disp([ '[' datestr(now) '] ' mfilename ': ' sb.version ' connected to ' sb.dev ]);
@@ -346,8 +347,11 @@ classdef stargo < handle
       % transfer main controller status
       %   RA DEC stored as string for e.g. display in interfaces
       if isfield(self.state, 'get_radec') && numel(self.state.get_radec) == 2
-        [h1,m1,s1] = angle2hms(double(self.state.get_radec(1))/1e6,'deg');  % in deg
-        [h2,m2,s2] = angle2hms(abs(double(self.state.get_radec(2)))/1e5,'deg');
+        self.state.ra_deg  = double(self.state.get_radec(1))/1e6; % in [hours]
+        self.state.dec_deg = double(self.state.get_radec(2))/1e5; % in [deg]
+        [h1,m1,s1] = angle2hms(self.state.ra_deg,'deg');  % in deg
+        [h2,m2,s2] = angle2hms(abs(self.state.dec_deg),'deg');
+        self.state.ra_deg = self.state.ra_deg*15; % in [deg]
         if self.state.get_radec(2) < 0, sig = '-'; else sig=''; end
         self.ra  = sprintf('%d:%d:%.1f', h1,m1,s1);
         self.dec = sprintf('%c%d°%d:%.1f', sig, h2,m2,s2);
@@ -535,6 +539,7 @@ classdef stargo < handle
       if any(level == 1:4)
         write(self, z{level});
         disp([ '[' datestr(now) '] ' mfilename '.zoom: ' z{level} ]);
+        self.state.zoom = level;
       end
 
     end % zoom
@@ -690,7 +695,7 @@ classdef stargo < handle
         url = sprintf([ 'http://www.sky-map.org/?ra=%f&de=%f&zoom=%d' ...
         '&show_grid=1&show_constellation_lines=1' ...
         '&show_constellation_boundaries=1&show_const_names=0&show_galaxies=1' ], ...
-        self.ra, self.dec, 5);
+        self.state.ra_deg/15, self.state.dec_deg, 9-self.state.zoom*2);
       end
       % open in system browser
       open_system_browser(url);
