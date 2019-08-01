@@ -40,8 +40,6 @@ classdef stargo < handle
     target_name = '';
     ra        = [];
     dec       = [];
-    
-    pulsems   = 0;
   end % properties
   
   properties(Access=private)
@@ -89,6 +87,9 @@ classdef stargo < handle
         return
       end
       sb.serial.Terminator = '#';
+      sb.state.pulsems     = 0;
+      sb.state.ra_move     = 0;
+      sb.state.dec_move    = 0;
       flush(sb);
       identify(sb);
       disp([ '[' datestr(now) '] ' mfilename ': ' sb.version ' connected to ' sb.dev ]);
@@ -219,7 +220,7 @@ classdef stargo < handle
     function delete(self)
       % DELETE close connection
       h = update_interface(self);
-      if ~isempty(self.timer) 
+      if isa(self.timer,'timer') && isvalid(self.timer)
         stop(self.timer);
         delete(self.timer); 
       end
@@ -364,6 +365,10 @@ classdef stargo < handle
       %   isTracking = tracking == 'T'
       % 'get_motors',    'X34','query motors state(0:5==stop,tracking,accel,decel,lowspeed,highspeed)';
       if isfield(self.state,'get_motors')
+        if numel(self.state.get_motors) >= 2
+          self.state.ra_move = self.state.get_motors(1);
+          self.state.dec_move= self.state.get_motors(2);
+        end
         if any(self.state.get_motors > 1)
           self.status = 'MOVING';
         elseif any(self.state.get_motors == 1)
@@ -395,32 +400,32 @@ classdef stargo < handle
       
       % request update of GUI
       update_interface(self);
-      
       % make sure our timer is running
-      % if strcmp(self.timer.Running, 'off') start(self.timer); end
+      if isa(self.timer,'timer') && isvalid(self.timer) && strcmp(self.timer.Running, 'off') 
+        start(self.timer); 
+      end
     end % getstatus
     
     % SET commands -------------------------------------------------------------
-    function stop(self)
+    function self=stop(self)
       % STOP stop/abort any mount move.
       write(self,'abort');
       disp([ '[' datestr(now) '] ' mfilename '.stop: ABORT.' ]);
       self.bufferSent = [];
       self.bufferRecv = '';
       notify(self, 'idle');
-      pause(1);
+      pause(0.5);
       getstatus(self, 'full');
     end % stop
     
-    function start(self)
+    function self=start(self)
       % START reset mount to its startup state.
-      stop(self);
       queue(self, {'set_speed_guide','set_tracking_sidereal','set_tracking_on', ...
         'set_highprec', 'set_keypad_on', 'set_st4_on','set_system_speed_medium'});
-      disp([ '[' datestr(now) '] ' mfilename '.start: Mount reset OK.' ]);
+      disp([ '[' datestr(now) '] ' mfilename '.start: Mount Ready.' ]);
       self.bufferSent = [];
       self.bufferRecv = '';
-      pause(1);
+      pause(0.5);
       getstatus(self, 'full');
     end % start
     
@@ -438,6 +443,7 @@ classdef stargo < handle
       if nargin < 2, option = 'park'; end
       if     strcmp(option, 'set'), option = 'set_park_pos';
       elseif strcmp(option, 'get'), option = 'get_park'; end
+      if strcmp(option,'park') && ~strcmp(self.status, 'PARKED') notify(self, 'moving'); end
       ret = queue(self, option);
       disp([ '[' datestr(now) '] ' mfilename '.park: ' option ' returned ' ret ]);
     end % park
@@ -471,6 +477,7 @@ classdef stargo < handle
           return
         end
       else
+        if strcmp(option,'home') && ~strcmp(self.status, 'HOME') notify(self, 'moving'); end
         ret = queue(self, option);
       end
       disp([ '[' datestr(now) '] ' mfilename '.home: ' ' returned ' ret ]);
@@ -493,14 +500,14 @@ classdef stargo < handle
     end % sync
     
     function ms=pulse(self, ms)
-      if nargin < 2, ms = self.pulsems; 
+      if nargin < 2, ms = self.state.pulsems; 
       else 
         if ischar(ms), ms = str2double(ms); end
         if isfinite(ms)
-          self.pulsems = ms;
+          self.state.pulsems = ms;
         end
       end
-    end % pulsems
+    end % pulse
     
     function level = zoom(self, level)
       % ZOOM set (or get) slew speed. Level should be 1,2,3 or 4.
@@ -548,7 +555,7 @@ classdef stargo < handle
         if isempty(index), return; end
       end
       if strcmp(msec, 'pulse')
-        msec = self.pulsems;
+        msec = self.state.pulsems;
       end
       if nargin == 3 && msec > 0
         if msec > 9999, msec=9999; end
@@ -562,6 +569,7 @@ classdef stargo < handle
         end
         write(self, cmd);
       end
+      notify(self, 'moving');
     end % move
     
     function goto(self, ra, dec)
