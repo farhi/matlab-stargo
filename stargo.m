@@ -92,6 +92,7 @@ classdef stargo < handle
       flush(sb);
       identify(sb);
       disp([ '[' datestr(now) '] ' mfilename ': ' sb.version ' connected to ' sb.dev ]);
+      start(sb); % make sure we start with a know configuration
       getstatus(sb,'full');
       
       place = getplace; % location guess from the network
@@ -281,6 +282,8 @@ classdef stargo < handle
           end % if tok
         end % for indexS
       end % for indexR
+      toremove(toremove >  numel(self.bufferSent)) = [];
+      toremove(toremove <= 0) = [];
       self.bufferSent(toremove) = [];
       if ~all(cellfun(@isempty, recv))
         self.bufferRecv = sprintf('%s#', recv{:});
@@ -343,17 +346,19 @@ classdef stargo < handle
       %   RA DEC stored as string for e.g. display in interfaces
       if isfield(self.state, 'get_radec') && numel(self.state.get_radec) == 2
         [h1,m1,s1] = angle2hms(double(self.state.get_radec(1))/1e6,'deg');  % in deg
-        [h2,m2,s2] = angle2hms(double(self.state.get_radec(2))/1e5,'deg');
+        [h2,m2,s2] = angle2hms(abs(double(self.state.get_radec(2)))/1e5,'deg');
+        if self.state.get_radec(2) < 0, sig = '-'; else sig=''; end
         self.ra  = sprintf('%d:%d:%.1f', h1,m1,s1);
-        self.dec = sprintf('%d°%d:%.1f', h2,m2,s2);
-      elseif isfield(self.state, 'get_ra') || isfield(self.state, 'get_dec')
+        self.dec = sprintf('%c%d°%d:%.1f', sig, h2,m2,s2);
+      elseif  isfield(self.state, 'get_ra') || isfield(self.state, 'get_dec')
         if isfield(self.state, 'get_ra')
           self.ra = sprintf('%d:%d:%.1f', self.state.get_ra(1), self.state.get_ra(2), self.state.get_ra(3));
         end
         if isfield(self.state, 'get_dec')
-          self.dec= sprintf('%d°%d:%.1f', self.state.get_dec);
+          self.dec= sprintf('%d°%d:%.1f', self.state.get_dec); % the sign is lost here
         end
       end
+      
       %   motor state and mount status: get_alignment, get_park
       % 'get_alignment', 'GW', 'query Scope alignment status(mt,tracking,nb_alignments)';
       %   isTracking = tracking == 'T'
@@ -978,7 +983,7 @@ function [h,m,s] = angle2hms(ang,in)
   if strcmp(in, 'hours')
     ang = ang/15;
   end
-  h=floor(ang); m=floor((ang-h)*60); s=(ang-h-m/60)*3600;
+  h=fix(ang); m=fix((ang-h)*60); s=(ang-h-m/60)*3600;
 end % angle2hms
 
 function ang = hms2angle(h,m,s)
@@ -1000,7 +1005,7 @@ end
 
 function [h,m,s] = convert2hms(in,hours)
   h=[]; m=[]; s=[];
-  if nargin < 2, in='hours'; end
+  if nargin < 2, hours='hours'; end
   if isempty(in), return; end
   if ischar(in) % from HH:MM:SS
     str = repradec(in);
