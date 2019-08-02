@@ -30,7 +30,8 @@ function h = update_interface(self)
     
     % change button labels according to mount type
     % get_alignment(1): A-AzEl mounted, P-Equatorially mounted, G-german mounted equatorial
-    if isfield(self.state, 'get_alignment') && iscell(self.state.get_alignment)
+    if isfield(self.state, 'get_alignment') && iscell(self.state.get_alignment) ...
+      && ischar(self.state.get_alignment{1})
       tags = {'stargo_s','stargo_n','stargo_e','stargo_w','stargo_ra_moving','stargo_dec_moving' };
       A    = {'S',       'N',       'E',       'W',       'EW',              'NS'};
       P    = {'DEC-',    'DEC+',    'RA+',     'RA-',     'RA',              'DEC'};

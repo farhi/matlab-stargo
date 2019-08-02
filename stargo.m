@@ -94,20 +94,17 @@ classdef stargo < handle
       flush(sb);
       identify(sb);
       disp([ '[' datestr(now) '] ' mfilename ': ' sb.version ' connected to ' sb.dev ]);
-      start(sb); % make sure we start with a know configuration
+      start(sb); % make sure we start with a known configuration
       getstatus(sb,'full');
       
       place = getplace; % location guess from the network
-      if ~isempty(place)
+      if ~isempty(place) && isscalar(sb.longitude) && isscalar(sb.latitude)
         if abs(place(1)-sb.longitude) > 1 || abs(place(2)-sb.latitude) > 1
           disp([ '[' datestr(now) '] WARNING: ' mfilename ': the controller location ' ...
-            mat2str([ sb.longitude sb.latitude ]) ' does not match that from the Network ' mat2str(place) ]);
+            mat2str([ sb.longitude sb.latitude ]) ' [deg] does not match that guessed from the Network ' mat2str(place) ]);
           disp('  *** Check StarGo Settings ***')
         end
       end
-      
-      % request to check settings before starting
-      settings(sb);
       
       % create the timer for auto update
       sb.timer  = timer('TimerFcn', @(src,evnt)getstatus(sb), ...
@@ -117,6 +114,37 @@ classdef stargo < handle
     end % stargo
     
     % I/O stuff ----------------------------------------------------------------
+    
+    function out = strcmp(self, in)
+      % STRCMP identify commands within available ones.
+      %   STRCMP(self, CMD) searches for CMD in available commands. CMD can be
+      %   given as a single serial command. The return value is a structure.
+      %
+      %   STRCMP(self, { 'CMD1' 'CMD2' ... }) does the same with an array as input.
+      if isstruct(in) && isfield(in,'send'), out = in; return;
+      elseif isnumeric(in), out = self.commands(in); return;
+      elseif ~ischar(in) && ~iscellstr(in)
+        error([ '[' datestr(now) '] ERROR: ' mfilename '.strcmp: invalid input type ' class(in) ]);
+      end
+      in = cellstr(in);
+      out = [];
+      for index = 1:numel(in)
+        this_in = in{index};
+        if this_in(1) == ':', list = { self.commands.send };
+        else                  list = { self.commands.name }; end
+        tok = find(strcmp(list, this_in));
+        if numel(tok) == 1
+          out = [ out self.commands(tok) ];
+        else
+          disp([ '[' datestr(now) '] WARNING: ' mfilename '.strcmp: can not find command ' this_in ' in list of available ones.' ]);
+          out.name = 'custom command';
+          out.send = this_in;
+          out.recv = '';
+          out.comment = '';
+        end
+      end
+      
+    end % strcmp
     
     function cout = write(self, cmd, varargin)
       % WRITE sends a single command, does not wait for answer.
@@ -134,11 +162,8 @@ classdef stargo < handle
       % send commands one by one
       for index=1:numel(cmd)
         argin = numel(find(cmd(index).send == '%'));
-        if argin ~= numel(varargin)
-          disp([ '[' datestr(now) '] WARNING: ' mfilename '.write: command ' cmd(index).send ...
-            ' requires ' num2str(argin) ' arguments but only ' ...
-            num2str(numel(varargin)) ' are given.' ]);
-        else
+        if argin == numel(varargin) ...
+          || (numel(varargin) == 1 && isnumeric(varargin{1}) && argin == numel(varargin{1}))
           c = sprintf(cmd(index).send, varargin{:});
           if self.verbose
             
@@ -150,6 +175,10 @@ classdef stargo < handle
           if ~isempty(cmd(index).recv) && ischar(cmd(index).recv)
             self.bufferSent = [ self.bufferSent cmd(index) ]; 
           end
+        else
+          disp([ '[' datestr(now) '] WARNING: ' mfilename '.write: command ' cmd(index).send ...
+            ' requires ' num2str(argin) ' arguments but only ' ...
+            num2str(numel(varargin)) ' are given.' ]);
         end
       end
     end % write
@@ -164,12 +193,12 @@ classdef stargo < handle
       val = '';
       % we wait for output to be available (we know there will be something)
       t0 = clock;
-      while etime(clock, t0) < 2 && self.serial.BytesAvailable==0
+      while etime(clock, t0) < 0.5 && self.serial.BytesAvailable==0
         pause(0.1)
       end
       % we wait until there is nothing else to retrieve
       t0 = clock;
-      while etime(clock, t0) < 2 && self.serial.BytesAvailable
+      while etime(clock, t0) < 0.5 && self.serial.BytesAvailable
         val = [ val flush(self) ];
         pause(0.1)
       end
@@ -255,11 +284,19 @@ classdef stargo < handle
       %   motor state and mount status: get_alignment, get_park
       % 'get_alignment', 'GW', 'query Scope alignment status(mt,tracking,nb_alignments)';
       %   isTracking: self.state.get_alignment{2} == 'T'
+      if ~isfield(self.state, 'get_alignment') || ~iscell(self.state.get_alignment) ...
+      || ~ischar(self.state.get_alignment{1})
+        disp([ '[' datestr(now) '] WARNING: ' mfilename '.getstatus: invalid get_alignment' ]);
+        self.state.get_alignment = [];
+      end
       % 'get_motors',    'X34','query motors state(0:5==stop,tracking,accel,decel,lowspeed,highspeed)';
       if isfield(self.state,'get_motors')
-        if numel(self.state.get_motors) >= 2
+        if numel(self.state.get_motors) >= 2 && isnumeric(self.state.get_motors)
           self.state.ra_move = self.state.get_motors(1);
           self.state.dec_move= self.state.get_motors(2);
+        else
+          disp([ '[' datestr(now) '] WARNING: ' mfilename '.getstatus: invalid get_motors' ]);
+          self.state.get_motors = [];
         end
         if any(self.state.get_motors > 1)
           self.status = 'MOVING';
@@ -412,14 +449,17 @@ classdef stargo < handle
     %   follow the Moon, stars, the Sun, resp.
    
       if nargin < 2, track = 'get'; end
-      switch track
+      switch lower(strtok(track))
       case 'get'
-         if self.state.get_alignment{2} == 'T', track=true; 
-         else track=false; end
-         return
+        if isfield(self.state, 'get_alignment') && iscell(self.state.get_alignment) ...
+         && self.state.get_alignment{2} == 'T', track=true; 
+        elseif isfield(self.state, 'get_motors') && any(self.state.get_motors == 1) 
+         track=true;
+        else track=false; end
+        return
       case {'on','off','lunar','sidereal','solar','none'}
-        write(self, [ 'set_tracking_' track ]);
         disp([ mfilename ': tracking: set to ' track ]);
+        write(self, [ 'set_tracking_' lower(strtok(track)) ]);
       otherwise
         disp([ mfilename ': tracking: unknown option ' track ]);
       end
@@ -436,7 +476,7 @@ classdef stargo < handle
     % 1: Disabled mode: Disabled and not Forced
     % 2: Forced mode: Enabled and Forced
       if nargin < 2, flip='get'; end
-      switch flip
+      switch lower(flip)
       case 'get'
         if self.state.get_meridian && ~self.state.get_meridian_forced
           flip = 'auto';
@@ -445,6 +485,7 @@ classdef stargo < handle
         elseif self.state.get_meridian && self.state.get_meridian_forced
           flip = 'forced';
         end
+        return
       case {'auto','on'}
         write(self, {'set_meridianflip_on','set_meridianflip_forced_off'});
       case {'off','disabled'}
@@ -494,6 +535,7 @@ classdef stargo < handle
       %
       %   MOVE(s, 'dir', msec) moves the mount in given direction for given time
       %   in [msec].
+      if nargin < 3, msec = 0; end
       if nargin > 1
         if strcmp(lower(nsew),'stop') stop(self); return; end
         index= find(lower(nsew(1)) == 'nsew');
@@ -645,36 +687,71 @@ classdef stargo < handle
       open_system_browser(url);
     end % web
     
-    function settings(self)
+    function config = settings(self)
       % SETTINGS display a dialogue to set board settings
       
       % send longitude and latitude to StarGo. This is needed for the HOME position.
+      
+      % pop-up choices must start with the current one
+      config_meridian = {'auto','off','forced'};
+      index = strcmp(config_meridian, meridianflip(self));
+      config_meridian = config_meridian([ find(index) find(~index) ]);
+      if tracking(self);
+        config_tracking = {'on','off','sidereal (stars)','lunar','solar'};
+      else
+        config_tracking = {'off','on','sidereal (stars)','lunar','solar'};
+      end
       [config, button] = settingsdlg( ...
         'title',[ mfilename ': mount settings' ], ...
         'Description',[ 'Please check/update the ' mfilename ...
                         ' configuration.' ], ...
-        {'Longitude [HH MM SS]','site_longitude'}, num2str(self.state.get_site_longitude), ...
-        {'Latitude [DD MM SS]','site_latitude'}, num2str(self.state.get_site_latitude), ...
+        {'Longitude [HH MM SS]','longitude'}, num2str(self.state.get_site_longitude), ...
+        {'Latitude [DD MM SS]','latitude'}, num2str(self.state.get_site_latitude), ...
         {'UTC offset (dayligh saving)','UTCoffset'}, self.UTCoffset, ...
+        {'Tracking','tracking'}, config_tracking, ...
         'separator','   ', ...
-        {'Meridian flip','meridianflip'}, {'auto','off','forced'}, ...
-        {'Tracking','tracking'},{'on','off','stars','moon','sun'}, ...
-        {'System speed','system_speed'},{'low','medium','fast','fastest'}, ...
+        {'Meridian flip','meridianflip'}, config_meridian, ...
+        {'System speed','system_speed'},{'medium','low','fast','fastest (15-18 V)'}, ...
         {'ST4 port connected','st4'}, logical(self.state.get_st4), ...
         {'Keypad connected','keypad'}, logical(self.state.get_keypad) ...
       );
       
       if isempty(button) || strcmp(button,'cancel') return; end
       
+      % check for changes
+      if isfinite(config.UTCoffset)
+        write(self, 'set_UTCoffset', round(config.UTCoffset))
+      end
+      if config.st4, write(self, 'set_st4_on');
+      else           write(self, 'set_st4_off'); end
+      if config.keypad, write(self, 'set_keypad_on');
+      else           write(self, 'set_keypad_off'); end
+      
       % send date, time, daylight saving shift.
       t0=clock; 
-      write(self, 'set_date', t0(1:3));
-      write(self, 'set_time', t0(4:6));
+      write(self, 'set_date', t0(1:3))
+      write(self, 'set_time', t0(4:6))
       % 'set_UTCoffset',                'SG %+03d',   '','set UTC offset(hh)';
-      write(self, 'set_UTCoffset', self.UTCoffset);
+      write(self, 'set_UTCoffset', self.UTCoffset)
       % display date/time settings
       t0(4)=t0(4)-self.UTCoffset; % allows to compute properly the Julian Day from Stellarium
       getLocalSiderealTime(self.longitude, t0);
+
+      tracking(self, config.tracking);
+      meridianflip(self, config.meridianflip);
+      
+      % these do not work: the StarGo gets blocked
+      if 0
+        config.longitude = str2num(config.longitude);
+        if numel(config.longitude) == 3 && all(isfinite(config.longitude))
+          write(self, 'set_site_longitude', round(config.longitude));
+        end
+        config.latitude = str2num(config.latitude);
+        if numel(config.latitude) == 3 && all(isfinite(config.latitude))
+          write(self, 'set_site_latitude', round(config.latitude))
+        end
+        write(self, ['set_system_speed_' config.system_speed]);
+      end
       
     end % settings
     
@@ -747,36 +824,7 @@ end % classdef
 % ------------------------------------------------------------------------------
 % private functions
 % ------------------------------------------------------------------------------
-function out = strcmp(self, in)
-      % STRCMP identify commands within available ones.
-      %   STRCMP(self, CMD) searches for CMD in available commands. CMD can be
-      %   given as a single serial command. The return value is a structure.
-      %
-      %   STRCMP(self, { 'CMD1' 'CMD2' ... }) does the same with an array as input.
-      if isstruct(in) && isfield(in,'send'), out = in; return;
-      elseif isnumeric(in), out = self.commands(in); return;
-      elseif ~ischar(in) && ~iscellstr(in)
-        error([ '[' datestr(now) '] WARNING: ' mfilename '.strcmp: invalid input type ' class(in) ]);
-      end
-      in = cellstr(in);
-      out = [];
-      for index = 1:numel(in)
-        this_in = in{index};
-        if this_in(1) == ':', list = { self.commands.send };
-        else                  list = { self.commands.name }; end
-        tok = find(strcmp(list, this_in));
-        if numel(tok) == 1
-          out = [ out self.commands(tok) ];
-        else
-          disp([ '[' datestr(now) '] WARNING: ' mfilename '.strcmp: can not find command ' this_in ' in list of available ones.' ]);
-          out.name = 'custom command';
-          out.send = this_in;
-          out.recv = '';
-          out.comment = '';
-        end
-      end
-      
-    end % strcmp
+
 
     function [p,self] = parseparams(self)
       % PARSEPARAMS interpret output and decode it.
@@ -936,7 +984,7 @@ function c = getcommands
     'set_ra',                       'Sr%02d:%02d:%02d', '','set RA(hh,mm,ss)';
     'set_sidereal_time',            'X32%02hd%02hd%02hd','','set local sideral time(hexa hh,mm,ss)';
     'set_site_latitude',            'St%+03d*%02d:%02d', '','set site latitude(dd,mm,ss)'; 
-    'set_site_longitude',           'Sg%+04d*%02u:%02u', '','set site longitude(dd,mm,ss)'; 
+    'set_site_longitude',           'Sg%+04d*%02d:%02d', '','set site longitude(dd,mm,ss)'; 
     'set_speed_center',             'RC',         '','set slew speed center (2/4)';     
     'set_speed_find',               'RM',         '','set slew speed find (3/4)';     
     'set_speed_guide',              'RG',         '','set slew speed guide (1/4)';     
@@ -1027,14 +1075,14 @@ function [LST, JD, GST] = getLocalSiderealTime(longitude, t0)
   if nargin == 1
     t0 = clock;
   end
-  fprintf('Date = %s\n', datestr(t0));
+  fprintf('Date                               %s\n', datestr(t0));
   year=t0(1); month=t0(2);  day=t0(3); 
   hour=t0(4);   min=t0(5);  sec=t0(6); 
   UT = hour + min/60 + sec/3600;
   J0 = 367*year - floor(7/4*(year + floor((month+9)/12))) ...
       + floor(275*month/9) + day + 1721013.5;
   JD = J0 + UT/24;              % Julian Day
-  fprintf('Julian day = %6.4f [days]\n',JD);
+  fprintf('Julian day                         %6.4f [days]\n',JD);
   JC = (J0 - 2451545.0)/36525;
   GST0 = 100.4606184 + 36000.77004*JC + 0.000387933*JC^2 - 2.583e-8*JC^3; %[deg]
   GST0 = mod(GST0, 360);  % GST0 range [0..360]
@@ -1044,7 +1092,7 @@ function [LST, JD, GST] = getLocalSiderealTime(longitude, t0)
   %fprintf('Greenwich sidereal time at UT[hours] %6.4f [deg]\n',GST);
   LST = GST + longitude;
   LST = mod(LST, 360);  % LST range [0..360]
-  fprintf('Local sidereal time,LST %6.4f [deg]\n',LST);
+  fprintf('Local sidereal time                %6.4f [deg]\n',LST);
 end % getLocalSiderealTime
 
 function place = getplace
@@ -1055,7 +1103,7 @@ function place = getplace
     ip = urlread('http://ip-api.com/json');
     ip = parse_json(ip);  % into struct (private)
     place = [ ip.lon ip.lat ];
-    disp([ mfilename ': You are located near ' ip.city ' ' ip.country ' [long lat]=' mat2str(place) ' obtained from http://ip-api.com/json' ]);
+    disp([ mfilename ': You seem to be located near ' ip.city ' ' ip.country ' [long lat]=' mat2str(place) ' obtained from http://ip-api.com/json' ]);
   else
     place = [];
   end
