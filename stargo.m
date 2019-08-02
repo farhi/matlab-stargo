@@ -27,7 +27,7 @@ classdef stargo < handle
     version   = '';
     longitude = [];
     latitude  = [];
-    UTCoffset = 0;
+    UTCoffset = 2;
     date      = 0;
     time      = 0;
     UserData  = [];
@@ -101,10 +101,13 @@ classdef stargo < handle
       if ~isempty(place)
         if abs(place(1)-sb.longitude) > 1 || abs(place(2)-sb.latitude) > 1
           disp([ '[' datestr(now) '] WARNING: ' mfilename ': the controller location ' ...
-            mat2str([ sb.longitude sb.latitude ]) ' does not match that from the Network.' ]);
-          disp('  *** Check StarGo/Settings menu item. ***')
+            mat2str([ sb.longitude sb.latitude ]) ' does not match that from the Network ' mat2str(place) ]);
+          disp('  *** Check StarGo Settings ***')
         end
       end
+      
+      % request to check settings before starting
+      settings(sb);
       
       % create the timer for auto update
       sb.timer  = timer('TimerFcn', @(src,evnt)getstatus(sb), ...
@@ -186,38 +189,7 @@ classdef stargo < handle
       write(self, cmd, varargin{:});
       [val, self] = read(self);
     end % queue
-    
-    function out = strcmp(self, in)
-      % STRCMP identify commands within available ones.
-      %   STRCMP(self, CMD) searches for CMD in available commands. CMD can be
-      %   given as a single serial command. The return value is a structure.
-      %
-      %   STRCMP(self, { 'CMD1' 'CMD2' ... }) does the same with an array as input.
-      if isstruct(in) && isfield(in,'send'), out = in; return;
-      elseif isnumeric(in), out = self.commands(in); return;
-      elseif ~ischar(in) && ~iscellstr(in)
-        error([ '[' datestr(now) '] WARNING: ' mfilename '.strcmp: invalid input type ' class(in) ]);
-      end
-      in = cellstr(in);
-      out = [];
-      for index = 1:numel(in)
-        this_in = in{index};
-        if this_in(1) == ':', list = { self.commands.send };
-        else                  list = { self.commands.name }; end
-        tok = find(strcmp(list, this_in));
-        if numel(tok) == 1
-          out = [ out self.commands(tok) ];
-        else
-          disp([ '[' datestr(now) '] WARNING: ' mfilename '.strcmp: can not find command ' this_in ' in list of available ones.' ]);
-          out.name = 'custom command';
-          out.send = this_in;
-          out.recv = '';
-          out.comment = '';
-        end
-      end
-      
-    end % strcmp
-    
+        
     function delete(self)
       % DELETE close connection
       h = update_interface(self);
@@ -229,90 +201,6 @@ classdef stargo < handle
       fclose(self.serial);
       close(h);
     end
-
-    function [p,self] = parseparams(self)
-      % PARSEPARAMS interpret output and decode it.
-      recv = self.bufferRecv; p=[];
-      if isempty(recv), return; end
-      % cut output from serial port into separate tokens
-      recv = textscan(recv,'%s','Delimiter','# ','MultipleDelimsAsOne',true);
-      recv = recv{1};
-      if isempty(recv), return; end
-      
-      % check if we have a Z1 status string in received buffer
-      toremove = [];
-      if ~isempty(strfind(recv, 'Z1'))
-        % Z1: we append a Z1 parsing rule.
-        c = struct('name', 'get_status', ...
-          'send', '', 'recv', ':Z1%1d%1d%1d', 'comment','status [motors=OFF,DEC,RA,all_ON,track=OFF,Moon,Sun,Star,speed=Guide,Center,Find,Max]');
-        if isempty(self.bufferSent)
-          self.bufferSent = c;
-        else
-          self.bufferSent(end+1) = c;
-        end
-        toremove = numel(self.bufferSent); % will remove Z1 afterwards
-      end
-      allSent = self.bufferSent; 
-      % we search for a pattern in sent that matches the actual recieved string
-      for indexR=1:numel(recv)
-        if isempty(recv{indexR}), continue; end
-        for indexS=1:numel(allSent)
-          sent = allSent(indexS); tok = [];
-          if any(indexS == toremove), continue; end
-          if isempty(sent.recv), continue; end
-          try
-            % look for an expected output 'sent' in the actual output 'recv'
-            [tok,pos] = textscan(recv{indexR}, sent.recv);
-          catch ME
-            continue; % pattern does not match received string. try an other one.
-          end
-
-          if ~isempty(tok) && ~any(cellfun(@isempty,tok))
-            if numel(tok) == 1
-              tok = tok{1};
-            end
-            if iscell(tok) && all(cellfun(@isnumeric, tok))
-              tok = cell2mat(tok);
-            elseif iscell(tok) && all(cellfun(@ischar, tok))
-              tok = char(tok);
-            end
-            self.state.(sent.name) = tok; % store in object 'state'
-            p.(sent.name)   = tok;
-            toremove(end+1) = indexS; % clear this request for search
-            recv{indexR}    = [];     % clear this received output as it was found
-            break; % go to next received item
-          end % if tok
-        end % for indexS
-      end % for indexR
-      toremove(toremove >  numel(self.bufferSent)) = [];
-      toremove(toremove <= 0) = [];
-      self.bufferSent(toremove) = [];
-      if ~all(cellfun(@isempty, recv))
-        self.bufferRecv = sprintf('%s#', recv{:});
-      else
-        self.bufferRecv = '';
-      end
-      
-      % typical state upon getstatus:
-      %            get_manufacturer: 'Avalon'
-      %           get_firmware: 56.6000
-      %       get_firmwaredate: 'd01122017'
-      %              get_radec: [32463 1]
-      %             get_motors: [1 0]
-      %      get_site_latitude: [48 52 0]
-      %     get_site_longitude: [2 20 0]
-      %                get_st4: 1
-      %          get_alignment: {'P'  'T'  [0]}
-      %             get_keypad: 0
-      %           get_meridian: 0
-      %               get_park: '0'
-      %         get_speed_slew: [8 8]
-      %      get_speed_guiding: [30 30]
-      %         get_sideofpier: 'X'
-      %                 get_ra: [0 1 57]
-      %                get_dec: [0 0 0]
-      %    get_meridian_forced: 0
-    end % parseparams
     
     % GET commands -------------------------------------------------------------
     
@@ -366,7 +254,7 @@ classdef stargo < handle
       
       %   motor state and mount status: get_alignment, get_park
       % 'get_alignment', 'GW', 'query Scope alignment status(mt,tracking,nb_alignments)';
-      %   isTracking = tracking == 'T'
+      %   isTracking: self.state.get_alignment{2} == 'T'
       % 'get_motors',    'X34','query motors state(0:5==stop,tracking,accel,decel,lowspeed,highspeed)';
       if isfield(self.state,'get_motors')
         if numel(self.state.get_motors) >= 2
@@ -504,6 +392,7 @@ classdef stargo < handle
     end % sync
     
     function ms=pulse(self, ms)
+    % PULSE get/set pulse length for slow moves
       if nargin < 2, ms = self.state.pulsems; 
       else 
         if ischar(ms), ms = str2double(ms); end
@@ -512,6 +401,58 @@ classdef stargo < handle
         end
       end
     end % pulse
+    
+    function track=tracking(self, track)
+    % TRACKING get/set tracking mode
+    %   TRACKING(s) returns true when tracking is ON, otherwise false.
+    %
+    %   TRACKING(s,'on') and TRACKING(s,'off') engage/disable tracking.
+    %
+    %   TRACKING(s, 'lunar|sidereal|solar|none') sets tracking speed to
+    %   follow the Moon, stars, the Sun, resp.
+   
+      if nargin < 2, track = 'get'; end
+      switch track
+      case 'get'
+         if self.state.get_alignment{2} == 'T', track=true; 
+         else track=false; end
+         return
+      case {'on','off','lunar','sidereal','solar','none'}
+        write(self, [ 'set_tracking_' track ]);
+        disp([ mfilename ': tracking: set to ' track ]);
+      otherwise
+        disp([ mfilename ': tracking: unknown option ' track ]);
+      end
+    end % tracking
+    
+    function flip = meridianflip(self, flip)
+    % MERIDIANFLIP get/set meridian flip behaviour
+    %   MERIDIANFLIP(s) returns the meridian flip mode
+    %
+    %   MERIDIANFLIP(s, 'auto|off|forced') sets the meridian flip as
+    %   auto (on), off, and forced resp.
+    
+    % 0: Auto mode: Enabled and not Forced
+    % 1: Disabled mode: Disabled and not Forced
+    % 2: Forced mode: Enabled and Forced
+      if nargin < 2, flip='get'; end
+      switch flip
+      case 'get'
+        if self.state.get_meridian && ~self.state.get_meridian_forced
+          flip = 'auto';
+        elseif ~self.state.get_meridian && ~self.state.get_meridian_forced
+          flip = 'off';
+        elseif self.state.get_meridian && self.state.get_meridian_forced
+          flip = 'forced';
+        end
+      case {'auto','on'}
+        write(self, {'set_meridianflip_on','set_meridianflip_forced_off'});
+      case {'off','disabled'}
+        write(self, {'set_meridianflip_off','set_meridianflip_forced_off'});
+      case 'forced'
+        write(self, {'set_meridianflip_on','set_meridianflip_forced_on'});
+      end
+    end % meridianflip
     
     function level = zoom(self, level)
       % ZOOM set (or get) slew speed. Level should be 1,2,3 or 4.
@@ -637,6 +578,9 @@ classdef stargo < handle
     
     function c = char(self)
       c = [ 'RA=' self.ra ' DEC=' self.dec ' ' self.status ];
+      if ~strncmp(self.target_name,'RA_',3)
+        c = [ c ' ' self.target_name ];
+      end
     end % char
     
     function display(self)
@@ -705,21 +649,33 @@ classdef stargo < handle
       % SETTINGS display a dialogue to set board settings
       
       % send longitude and latitude to StarGo. This is needed for the HOME position.
+      [config, button] = settingsdlg( ...
+        'title',[ mfilename ': mount settings' ], ...
+        'Description',[ 'Please check/update the ' mfilename ...
+                        ' configuration.' ], ...
+        {'Longitude [HH MM SS]','site_longitude'}, num2str(self.state.get_site_longitude), ...
+        {'Latitude [DD MM SS]','site_latitude'}, num2str(self.state.get_site_latitude), ...
+        {'UTC offset (dayligh saving)','UTCoffset'}, self.UTCoffset, ...
+        'separator','   ', ...
+        {'Meridian flip','meridianflip'}, {'auto','off','forced'}, ...
+        {'Tracking','tracking'},{'on','off','stars','moon','sun'}, ...
+        {'System speed','system_speed'},{'low','medium','fast','fastest'}, ...
+        {'ST4 port connected','st4'}, logical(self.state.get_st4), ...
+        {'Keypad connected','keypad'}, logical(self.state.get_keypad) ...
+      );
       
-      % longitude
-      % lattitude
-      % meridian flip
-      % equatorial, al/az
-      % side of pier
+      if isempty(button) || strcmp(button,'cancel') return; end
       
-      % send date, time, time saving shift.
-      % 'set_time',                     'SL %02d:%02d:%02d', '0','set local time(hh,mm,ss)';
-      % 'set_date',                     'SC %02d%02d%02d','','set local date(mm,dd,yy)(0)';
-      t = clock;
-      write(self, 'set_date', t(1),t(2),t(3));
-      write(self, 'set_time', t(4),t(5),t(6));
+      % send date, time, daylight saving shift.
+      t0=clock; 
+      write(self, 'set_date', t0(1:3));
+      write(self, 'set_time', t0(4:6));
       % 'set_UTCoffset',                'SG %+03d',   '','set UTC offset(hh)';
-      write(self, 'set_time', t(4),t(5),t(6));
+      write(self, 'set_UTCoffset', self.UTCoffset);
+      % display date/time settings
+      t0(4)=t0(4)-self.UTCoffset; % allows to compute properly the Julian Day from Stellarium
+      getLocalSiderealTime(self.longitude, t0);
+      
     end % settings
     
     % Other commands -----------------------------------------------------------
@@ -791,6 +747,120 @@ end % classdef
 % ------------------------------------------------------------------------------
 % private functions
 % ------------------------------------------------------------------------------
+function out = strcmp(self, in)
+      % STRCMP identify commands within available ones.
+      %   STRCMP(self, CMD) searches for CMD in available commands. CMD can be
+      %   given as a single serial command. The return value is a structure.
+      %
+      %   STRCMP(self, { 'CMD1' 'CMD2' ... }) does the same with an array as input.
+      if isstruct(in) && isfield(in,'send'), out = in; return;
+      elseif isnumeric(in), out = self.commands(in); return;
+      elseif ~ischar(in) && ~iscellstr(in)
+        error([ '[' datestr(now) '] WARNING: ' mfilename '.strcmp: invalid input type ' class(in) ]);
+      end
+      in = cellstr(in);
+      out = [];
+      for index = 1:numel(in)
+        this_in = in{index};
+        if this_in(1) == ':', list = { self.commands.send };
+        else                  list = { self.commands.name }; end
+        tok = find(strcmp(list, this_in));
+        if numel(tok) == 1
+          out = [ out self.commands(tok) ];
+        else
+          disp([ '[' datestr(now) '] WARNING: ' mfilename '.strcmp: can not find command ' this_in ' in list of available ones.' ]);
+          out.name = 'custom command';
+          out.send = this_in;
+          out.recv = '';
+          out.comment = '';
+        end
+      end
+      
+    end % strcmp
+
+    function [p,self] = parseparams(self)
+      % PARSEPARAMS interpret output and decode it.
+      recv = self.bufferRecv; p=[];
+      if isempty(recv), return; end
+      % cut output from serial port into separate tokens
+      recv = textscan(recv,'%s','Delimiter','# ','MultipleDelimsAsOne',true);
+      recv = recv{1};
+      if isempty(recv), return; end
+      
+      % check if we have a Z1 status string in received buffer
+      toremove = [];
+      if ~isempty(strfind(recv, 'Z1'))
+        % Z1: we append a Z1 parsing rule.
+        c = struct('name', 'get_status', ...
+          'send', '', 'recv', ':Z1%1d%1d%1d', 'comment','status [motors=OFF,DEC,RA,all_ON,track=OFF,Moon,Sun,Star,speed=Guide,Center,Find,Max]');
+        if isempty(self.bufferSent)
+          self.bufferSent = c;
+        else
+          self.bufferSent(end+1) = c;
+        end
+        toremove = numel(self.bufferSent); % will remove Z1 afterwards
+      end
+      allSent = self.bufferSent; 
+      % we search for a pattern in sent that matches the actual recieved string
+      for indexR=1:numel(recv)
+        if isempty(recv{indexR}), continue; end
+        for indexS=1:numel(allSent)
+          sent = allSent(indexS); tok = [];
+          if any(indexS == toremove), continue; end
+          if isempty(sent.recv), continue; end
+          try
+            % look for an expected output 'sent' in the actual output 'recv'
+            [tok,pos] = textscan(recv{indexR}, sent.recv);
+          catch ME
+            continue; % pattern does not match received string. try an other one.
+          end
+
+          if ~isempty(tok) && ~any(cellfun(@isempty,tok))
+            if numel(tok) == 1
+              tok = tok{1};
+            end
+            if iscell(tok) && all(cellfun(@isnumeric, tok))
+              tok = cell2mat(tok);
+            elseif iscell(tok) && all(cellfun(@ischar, tok))
+              tok = char(tok);
+            end
+            self.state.(sent.name) = tok; % store in object 'state'
+            p.(sent.name)   = tok;
+            toremove(end+1) = indexS; % clear this request for search
+            recv{indexR}    = [];     % clear this received output as it was found
+            break; % go to next received item
+          end % if tok
+        end % for indexS
+      end % for indexR
+      toremove(toremove >  numel(self.bufferSent)) = [];
+      toremove(toremove <= 0) = [];
+      self.bufferSent(toremove) = [];
+      if ~all(cellfun(@isempty, recv))
+        self.bufferRecv = sprintf('%s#', recv{:});
+      else
+        self.bufferRecv = '';
+      end
+      
+      % typical state upon getstatus:
+      %            get_manufacturer: 'Avalon'
+      %           get_firmware: 56.6000
+      %       get_firmwaredate: 'd01122017'
+      %              get_radec: [32463 1]
+      %             get_motors: [1 0]
+      %      get_site_latitude: [48 52 0]
+      %     get_site_longitude: [2 20 0]
+      %                get_st4: 1
+      %          get_alignment: {'P'  'T'  [0]}
+      %             get_keypad: 0
+      %           get_meridian: 0
+      %               get_park: '0'
+      %         get_speed_slew: [8 8]
+      %      get_speed_guiding: [30 30]
+      %         get_sideofpier: 'X'
+      %                 get_ra: [0 1 57]
+      %                get_dec: [0 0 0]
+      %    get_meridian_forced: 0
+    end % parseparams
 
 function catalogs = getcatalogs
   % GETCATALOGS load catalogs for stars and DSO.
@@ -957,23 +1027,24 @@ function [LST, JD, GST] = getLocalSiderealTime(longitude, t0)
   if nargin == 1
     t0 = clock;
   end
+  fprintf('Date = %s\n', datestr(t0));
   year=t0(1); month=t0(2);  day=t0(3); 
   hour=t0(4);   min=t0(5);  sec=t0(6); 
   UT = hour + min/60 + sec/3600;
   J0 = 367*year - floor(7/4*(year + floor((month+9)/12))) ...
       + floor(275*month/9) + day + 1721013.5;
   JD = J0 + UT/24;              % Julian Day
-  %fprintf('Julian day = %6.4f [days] \n',JD);
+  fprintf('Julian day = %6.4f [days]\n',JD);
   JC = (J0 - 2451545.0)/36525;
   GST0 = 100.4606184 + 36000.77004*JC + 0.000387933*JC^2 - 2.583e-8*JC^3; %[deg]
   GST0 = mod(GST0, 360);  % GST0 range [0..360]
-  %fprintf('Greenwich sidereal time at 0 hr UT %6.4f [deg]\n',GST0);
+  fprintf('Greenwich sidereal time at 0 hr UT %6.4f [deg]\n',GST0);
   GST = GST0 + 360.98564724*UT/24;
   GST = mod(GST, 360);  % GST0 range [0..360]
   %fprintf('Greenwich sidereal time at UT[hours] %6.4f [deg]\n',GST);
   LST = GST + longitude;
   LST = mod(LST, 360);  % LST range [0..360]
-  %fprintf('Local sidereal time,LST %6.4f [deg]\n',LST);
+  fprintf('Local sidereal time,LST %6.4f [deg]\n',LST);
 end % getLocalSiderealTime
 
 function place = getplace
