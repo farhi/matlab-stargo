@@ -25,11 +25,9 @@ classdef stargo < handle
   properties
     dev       = 'COM1'; 
     version   = '';
-    longitude = [];
-    latitude  = [];
+    longitude = 48.5;
+    latitude  = 2.33;
     UTCoffset = 2;
-    date      = 0;
-    time      = 0;
     UserData  = [];
     
     state     = [];       % detailed controller state (raw)
@@ -91,11 +89,9 @@ classdef stargo < handle
       sb.state.ra_move     = 0;
       sb.state.dec_move    = 0;
       sb.state.zoom        = 1;
-      flush(sb);
-      identify(sb);
-      disp([ '[' datestr(now) '] ' mfilename ': ' sb.version ' connected to ' sb.dev ]);
+      
       start(sb); % make sure we start with a known configuration
-      getstatus(sb,'full');
+      disp([ '[' datestr(now) '] ' mfilename ': ' sb.version ' connected to ' sb.dev ]);
       
       place = getplace; % location guess from the network
       if ~isempty(place) && isscalar(sb.longitude) && isscalar(sb.latitude)
@@ -132,11 +128,11 @@ classdef stargo < handle
         this_in = in{index};
         if this_in(1) == ':', list = { self.commands.send };
         else                  list = { self.commands.name }; end
-        tok = find(strcmp(list, this_in));
+        tok = find(strcmpi(list, this_in));
         if numel(tok) == 1
           out = [ out self.commands(tok) ];
         else
-          disp([ '[' datestr(now) '] WARNING: ' mfilename '.strcmp: can not find command ' this_in ' in list of available ones.' ]);
+          % disp([ '[' datestr(now) '] WARNING: ' mfilename '.strcmp: can not find command ' this_in ' in list of available ones.' ]);
           out.name = 'custom command';
           out.send = this_in;
           out.recv = '';
@@ -253,7 +249,7 @@ classdef stargo < handle
         list = { 'get_radec', 'get_motors', 'get_site_latitude', 'get_site_longitude', ...
           'get_st4', 'get_alignment', 'get_keypad', 'get_meridian', 'get_park', ...
           'get_speed_slew', 'get_speed_guiding', 'get_sideofpier','get_ra','get_dec', ...
-          'get_meridian_forced'};
+          'get_meridian_forced','get_torque','get_precision','get_unkown_x1b','get_unkown_x3c'};
         % invalid: get_localdate get_locattime get_UTCoffset get_tracking_freq
       otherwise % {'short','fast'}
         list = {'get_radec','get_motors','get_ra','get_dec'};
@@ -338,7 +334,10 @@ classdef stargo < handle
     % SET commands -------------------------------------------------------------
     function self=stop(self)
       % STOP stop/abort any mount move.
-      write(self,'abort');
+      
+      % add:
+      % X0AAUX1ST X0FAUX2ST FQ(full_abort) X3E0(full_abort) 
+      write(self,{'abort','full_abort','set_stargo_off'});
       disp([ '[' datestr(now) '] ' mfilename '.stop: ABORT.' ]);
       self.bufferSent = [];
       self.bufferRecv = '';
@@ -349,14 +348,55 @@ classdef stargo < handle
     
     function self=start(self)
       % START reset mount to its startup state.
-      queue(self, {'set_speed_guide','set_tracking_sidereal','set_tracking_on', ...
-        'set_highprec', 'set_keypad_on', 'set_st4_on','set_system_speed_medium'});
-      disp([ '[' datestr(now) '] ' mfilename '.start: Mount Ready.' ]);
+      flush(self);
+      identify(self);
+      % normal sequence: 
+      % X46r X38(get_park) X22(get_speed_guiding) TTGM TTGT(get_torque) X05(get_precision)
+      % TTGHS X1B TTSFG X3C X3E1(set_stargo_on) Gt Gg
+      queue(self, {':X46r#',,'get_park','get_speed_guiding',':TTGM#','get_torque', ...
+        'get_precision',':TTGHS#','get_unkown_x1b',':TTSFG#','get_unkown_x3c','set_stargo_on', ...
+        'get_site_latitude','get_site_longitude', ...
+        'set_speed_guide','set_tracking_sidereal','set_tracking_on', ...
+        'set_highprec', 'set_keypad_on', 'set_st4_on','set_system_speed_fast'});
+      
       self.bufferSent = [];
       self.bufferRecv = '';
       pause(0.5);
       getstatus(self, 'full');
+      disp([ '[' datestr(now) '] ' mfilename '.start: Mount Ready.' ]);
     end % start
+    
+    function ret=time(self, t0)
+      % TIME set the local sidereal time (LST)
+      %   TIME(s) uses current time, and UTC offset (daylight saving)
+      %   TIME(s,'now') is the same as above.
+      %
+      %   TIME(s,'home') is the same as above, but sets the home position/time.
+      %
+      %   TIME(s, t0) specifies a date/time.
+      %   The t0 is [year month day hour min sec] as obtained from clock, without 
+      %   subtracting UTCoffset to hours.
+      if nargin == 1
+        t0 = 'now';
+      end
+      if strcmp(t0, 'home') || strcmp(t0, 'set_home_pos')
+        cmd = 'set_home_pos';
+      else
+        cmd = 'set_sidereal_time;
+      end
+      if strcmp(t0, 'now')
+        % using UTCoffset allows to compute properly the Julian Day from Stellarium
+        fprintf('Date (local)                       %s\n', datestr(t0));
+        t0 = clock; t0(4) = t0(4) - self.UTCoffset;
+      end
+      if ~isnumeric(t0) || numel(t0) ~= 6
+        disp([ mfilename ': time: ERROR: invalid time specification. Should be e.g. t0=clock.'])
+        return
+      end
+      LST = getLocalSiderealTime(self.longitude, t0);
+      [h,m,s] = angle2hms(LST);
+      ret = queue(self, cmd,h,m,s);
+    end % time
     
     function ret=park(self, option)
       % PARK send the mount to a reference PARK position.
@@ -368,12 +408,19 @@ classdef stargo < handle
       %
       %   PARK(s,'set') defines park position as the current position.
       %
-      %   PARK(s,'get') gets park position status.
+      %   PARK(s,'get') gets park position status, and returns '2' when PARKED, 'B' when PARKING.
+      
+      % park: X362 
+      % unpark: X370 X32%02d%02d%02d X122 TQ
       if nargin < 2, option = 'park'; end
       if     strcmp(option, 'set'), option = 'set_park_pos';
       elseif strcmp(option, 'get'), option = 'get_park'; end
-      if strcmp(option,'park') && ~strcmp(self.status, 'PARKED') notify(self, 'moving'); end
       ret = queue(self, option);
+      if strcmp(option,'park')
+        if ~strcmp(self.status, 'PARKED') notify(self, 'moving'); end
+      elseif strcmp(option,'unpark')
+        tracking(self, 'sidereal');
+      end
       disp([ '[' datestr(now) '] ' mfilename '.park: ' option ' returned ' ret ]);
     end % park
     
@@ -390,23 +437,20 @@ classdef stargo < handle
       %
       %   HOME(s,'set') sets HOME position as the current position.
       %
-      %   HOME(s,'get') gets HOME position status.
+      %   HOME(s,'get') gets HOME position status, and returns '1' when in HOME.
+      
+      % set/sync home: set_site_longitude set_site_latitude X31%02d%02d%02d(set_home_pos) X351
+      % goto home: X361(home) X120(set_tracking_off) X32%02d%02d%02d
       if nargin < 2, option = 'home'; end
       if     strcmp(option, 'set'), option = 'set_home_pos';
       elseif strcmp(option, 'get'), option = 'get_park'; end
       if strcmp(option, 'set_home_pos')
-        if isfield(self.state, 'get_site_longitude')
-          longitude = double(self.state.get_site_longitude);
-          longitude = longitude(1)+longitude(2)/60+longitude(3)/3600;
-          LST = getLocalSiderealTime(longitude); % in [deg]
-          [h,m,s] = angle2hms(LST);
-          ret = queue(self, option, h,m,s);
-        else
-          disp([ '[' datestr(now) '] ' mfilename '.home: WARNING: longitude is not set yet !' ]);
-          return
-        end
+        ret = time(self, 'home');
+        ret = [ ret queue(self, ':X351') ]; 
       else
-        if strcmp(option,'home') && ~strcmp(self.status, 'HOME') notify(self, 'moving'); end
+        if strcmp(option,'home')
+          if ~strcmp(self.status, 'HOME') notify(self, 'moving'); end
+        end
         ret = queue(self, option);
       end
       disp([ '[' datestr(now) '] ' mfilename '.home: ' ' returned ' ret ]);
@@ -593,6 +637,9 @@ classdef stargo < handle
       end
       target_name = '';
       % from object name
+      if     ischar(ra) && strcmp(ra, 'home'), home(self); return;
+      elseif ischar(ra) && strcmp(ra, 'park'), park(self); return;
+      end
       if ischar(ra) && ~any(ra(1) == '0123456789+-')
         found = findobj(self, ra);
         if ~isempty(found), ra = found; dec = ''; end
@@ -690,8 +737,6 @@ classdef stargo < handle
     function config = settings(self)
       % SETTINGS display a dialogue to set board settings
       
-      % send longitude and latitude to StarGo. This is needed for the HOME position.
-      
       % pop-up choices must start with the current one
       config_meridian = {'auto','off','forced'};
       index = strcmp(config_meridian, meridianflip(self));
@@ -711,16 +756,16 @@ classdef stargo < handle
         {'Tracking','tracking'}, config_tracking, ...
         'separator','   ', ...
         {'Meridian flip','meridianflip'}, config_meridian, ...
-        {'System speed','system_speed'},{'medium','low','fast','fastest (15-18 V)'}, ...
+        {'System speed','system_speed'},{'medium (default)','low','fast','fastest (15-18 V)'}, ...
         {'ST4 port connected','st4'}, logical(self.state.get_st4), ...
-        {'Keypad connected','keypad'}, logical(self.state.get_keypad) ...
+        {'Keypad connected','keypad'}, logical(self.state.get_keypad), ...
       );
       
       if isempty(button) || strcmp(button,'cancel') return; end
       
       % check for changes
       if isfinite(config.UTCoffset)
-        write(self, 'set_UTCoffset', round(config.UTCoffset))
+        write(self, 'set_UTCoffset', round(config.UTCoffset));
       end
       if config.st4, write(self, 'set_st4_on');
       else           write(self, 'set_st4_off'); end
@@ -729,29 +774,27 @@ classdef stargo < handle
       
       % send date, time, daylight saving shift.
       t0=clock; 
-      write(self, 'set_date', t0(1:3))
-      write(self, 'set_time', t0(4:6))
+      write(self, 'set_date', t0(1:3));
+      write(self, 'set_time', t0(4:6));
       % 'set_UTCoffset',                'SG %+03d',   '','set UTC offset(hh)';
-      write(self, 'set_UTCoffset', self.UTCoffset)
+      write(self, 'set_UTCoffset', self.UTCoffset);
       % display date/time settings
       t0(4)=t0(4)-self.UTCoffset; % allows to compute properly the Julian Day from Stellarium
-      getLocalSiderealTime(self.longitude, t0);
+      time(self,t0);
 
-      tracking(self, config.tracking);
-      meridianflip(self, config.meridianflip);
+      tracking(self, strtok(config.tracking));
+      meridianflip(self, strtok(config.meridianflip));
       
       % these do not work: the StarGo gets blocked
-      if 0
-        config.longitude = str2num(config.longitude);
-        if numel(config.longitude) == 3 && all(isfinite(config.longitude))
-          write(self, 'set_site_longitude', round(config.longitude));
-        end
-        config.latitude = str2num(config.latitude);
-        if numel(config.latitude) == 3 && all(isfinite(config.latitude))
-          write(self, 'set_site_latitude', round(config.latitude))
-        end
-        write(self, ['set_system_speed_' config.system_speed]);
+      config.longitude = str2num(config.longitude);
+      if numel(config.longitude) == 3 && all(isfinite(config.longitude))
+        write(self, 'set_site_longitude', round(config.longitude));
       end
+      config.latitude = str2num(config.latitude);
+      if numel(config.latitude) == 3 && all(isfinite(config.latitude))
+        write(self, 'set_site_latitude', round(config.latitude))
+      end
+      write(self, ['set_system_speed_' strtok(config.system_speed)]);
       
     end % settings
     
@@ -826,89 +869,89 @@ end % classdef
 % ------------------------------------------------------------------------------
 
 
-    function [p,self] = parseparams(self)
-      % PARSEPARAMS interpret output and decode it.
-      recv = self.bufferRecv; p=[];
-      if isempty(recv), return; end
-      % cut output from serial port into separate tokens
-      recv = textscan(recv,'%s','Delimiter','# ','MultipleDelimsAsOne',true);
-      recv = recv{1};
-      if isempty(recv), return; end
-      
-      % check if we have a Z1 status string in received buffer
-      toremove = [];
-      if ~isempty(strfind(recv, 'Z1'))
-        % Z1: we append a Z1 parsing rule.
-        c = struct('name', 'get_status', ...
-          'send', '', 'recv', ':Z1%1d%1d%1d', 'comment','status [motors=OFF,DEC,RA,all_ON,track=OFF,Moon,Sun,Star,speed=Guide,Center,Find,Max]');
-        if isempty(self.bufferSent)
-          self.bufferSent = c;
-        else
-          self.bufferSent(end+1) = c;
-        end
-        toremove = numel(self.bufferSent); % will remove Z1 afterwards
+function [p,self] = parseparams(self)
+  % PARSEPARAMS interpret output and decode it.
+  recv = self.bufferRecv; p=[];
+  if isempty(recv), return; end
+  % cut output from serial port into separate tokens
+  recv = textscan(recv,'%s','Delimiter','# ','MultipleDelimsAsOne',true);
+  recv = recv{1};
+  if isempty(recv), return; end
+  
+  % check if we have a Z1 status string in received buffer
+  toremove = [];
+  if ~isempty(strfind(recv, 'Z1'))
+    % Z1: we append a Z1 parsing rule.
+    c = struct('name', 'get_status', ...
+      'send', '', 'recv', ':Z1%1d%1d%1d', 'comment','status [motors=OFF,DEC,RA,all_ON,track=OFF,Moon,Sun,Star,speed=Guide,Center,Find,Max]');
+    if isempty(self.bufferSent)
+      self.bufferSent = c;
+    else
+      self.bufferSent(end+1) = c;
+    end
+    toremove = numel(self.bufferSent); % will remove Z1 afterwards
+  end
+  allSent = self.bufferSent; 
+  % we search for a pattern in sent that matches the actual recieved string
+  for indexR=1:numel(recv)
+    if isempty(recv{indexR}), continue; end
+    for indexS=1:numel(allSent)
+      sent = allSent(indexS); tok = [];
+      if any(indexS == toremove), continue; end
+      if isempty(sent.recv), continue; end
+      try
+        % look for an expected output 'sent' in the actual output 'recv'
+        [tok,pos] = textscan(recv{indexR}, sent.recv);
+      catch ME
+        continue; % pattern does not match received string. try an other one.
       end
-      allSent = self.bufferSent; 
-      % we search for a pattern in sent that matches the actual recieved string
-      for indexR=1:numel(recv)
-        if isempty(recv{indexR}), continue; end
-        for indexS=1:numel(allSent)
-          sent = allSent(indexS); tok = [];
-          if any(indexS == toremove), continue; end
-          if isempty(sent.recv), continue; end
-          try
-            % look for an expected output 'sent' in the actual output 'recv'
-            [tok,pos] = textscan(recv{indexR}, sent.recv);
-          catch ME
-            continue; % pattern does not match received string. try an other one.
-          end
 
-          if ~isempty(tok) && ~any(cellfun(@isempty,tok))
-            if numel(tok) == 1
-              tok = tok{1};
-            end
-            if iscell(tok) && all(cellfun(@isnumeric, tok))
-              tok = cell2mat(tok);
-            elseif iscell(tok) && all(cellfun(@ischar, tok))
-              tok = char(tok);
-            end
-            self.state.(sent.name) = tok; % store in object 'state'
-            p.(sent.name)   = tok;
-            toremove(end+1) = indexS; % clear this request for search
-            recv{indexR}    = [];     % clear this received output as it was found
-            break; % go to next received item
-          end % if tok
-        end % for indexS
-      end % for indexR
-      toremove(toremove >  numel(self.bufferSent)) = [];
-      toremove(toremove <= 0) = [];
-      self.bufferSent(toremove) = [];
-      if ~all(cellfun(@isempty, recv))
-        self.bufferRecv = sprintf('%s#', recv{:});
-      else
-        self.bufferRecv = '';
-      end
-      
-      % typical state upon getstatus:
-      %            get_manufacturer: 'Avalon'
-      %           get_firmware: 56.6000
-      %       get_firmwaredate: 'd01122017'
-      %              get_radec: [32463 1]
-      %             get_motors: [1 0]
-      %      get_site_latitude: [48 52 0]
-      %     get_site_longitude: [2 20 0]
-      %                get_st4: 1
-      %          get_alignment: {'P'  'T'  [0]}
-      %             get_keypad: 0
-      %           get_meridian: 0
-      %               get_park: '0'
-      %         get_speed_slew: [8 8]
-      %      get_speed_guiding: [30 30]
-      %         get_sideofpier: 'X'
-      %                 get_ra: [0 1 57]
-      %                get_dec: [0 0 0]
-      %    get_meridian_forced: 0
-    end % parseparams
+      if ~isempty(tok) && ~any(cellfun(@isempty,tok))
+        if numel(tok) == 1
+          tok = tok{1};
+        end
+        if iscell(tok) && all(cellfun(@isnumeric, tok))
+          tok = cell2mat(tok);
+        elseif iscell(tok) && all(cellfun(@ischar, tok))
+          tok = char(tok);
+        end
+        self.state.(sent.name) = tok; % store in object 'state'
+        p.(sent.name)   = tok;
+        toremove(end+1) = indexS; % clear this request for search
+        recv{indexR}    = [];     % clear this received output as it was found
+        break; % go to next received item
+      end % if tok
+    end % for indexS
+  end % for indexR
+  toremove(toremove >  numel(self.bufferSent)) = [];
+  toremove(toremove <= 0) = [];
+  self.bufferSent(toremove) = [];
+  if ~all(cellfun(@isempty, recv))
+    self.bufferRecv = sprintf('%s#', recv{:});
+  else
+    self.bufferRecv = '';
+  end
+  
+  % typical state upon getstatus:
+  %            get_manufacturer: 'Avalon'
+  %           get_firmware: 56.6000
+  %       get_firmwaredate: 'd01122017'
+  %              get_radec: [32463 1]
+  %             get_motors: [1 0]
+  %      get_site_latitude: [48 52 0]
+  %     get_site_longitude: [2 20 0]
+  %                get_st4: 1
+  %          get_alignment: {'P'  'T'  [0]}
+  %             get_keypad: 0
+  %           get_meridian: 0
+  %               get_park: '0'
+  %         get_speed_slew: [8 8]
+  %      get_speed_guiding: [30 30]
+  %         get_sideofpier: 'X'
+  %                 get_ra: [0 1 57]
+  %                get_dec: [0 0 0]
+  %    get_meridian_forced: 0
+end % parseparams
 
 function catalogs = getcatalogs
   % GETCATALOGS load catalogs for stars and DSO.
@@ -956,6 +999,7 @@ function c = getcommands
     'get_meridian',                 'TTGFs',      'vs%d','query meridian flip(TF)';  
     'get_motors',                   'X34',        'm%1d%1d','query motors state(0:5==stop,tracking,accel,decel,lowspeed,highspeed)'; 
     'get_park',                     'X38',        'p%s','query tracking state(0=unparked,1=homed,2=parked,A=slewing,B=slewing2park)';   
+    'get_precision',                'X05',        '','query precision, returns "U"';
     'get_radec',                    'X590',       'RD%8d%8d','query RADEC(RA*1e6,DEC*1e5) in deg';
     'get_sideofpier',               'X39',        'P%c','query pier side(X=unkown,E=east2east,W=east2west)';  
     'get_site_latitude',            'Gt',         '%dt%d:%d','query Site Latitude';  
@@ -964,47 +1008,79 @@ function c = getcommands
     'get_speed_guiding',            'X22',        '%db%d','query guiding speeds(ra,dec)';   
     'get_speed_slew',               'TTGMX',      '%da%d','query slewing speed(xx=6,8,9,12,yy)';    
     'get_st4',                      'TTGFh',      'vh%1d','query ST4 status(TF)';  
+    'get_torque',                   'TTGT',       't%3d','query motor torque (x=50-150 in %)';
+    'get_unkown_x1b',               'X1B',        '','query X1B, e.g. returns "w01"';
+    'get_unkown_x3c',               'X3C',        '','query X3C, e.g. returns ":Z1133"';
+    'set_altaz',                    'AA',         '',     'set to alt/az mode';
+    'set_autoguiding_speed_dec',    'X21%02d',    '',     'set auto guiding speed on DEC (xx for 0.xx %)';
+    'set_autoguiding_speed_ra',     'X20%02d',    '',     'set auto guiding speed on RA (xx for 0.xx %)';
     'set_date',                     'SC %02d%02d%02d','','set local date(mm,dd,yy)(0)';
-    'set_dec',                      'Sd%+03d*%02d:%02d', '','set DEC(dd,mm,ss)';
+    'set_dec',                      'Sd %+03d*%02d:%02d', '','set DEC(dd,mm,ss)';
+    'set_equatorial',               'AP',         '',    ,'set mount to equatorial mode';
     'set_guiding_speed_dec',        'X21%2d',     '','set DEC speed(dd percent)';
     'set_guiding_speed_ra',         'X20%2d',     '','set RA speed(dd percent)';
     'set_highprec',                 'U',          '','switch to high precision';
+    'set_hemisphere_north',         'TTHS0',      '','set North hemisphere';
+    'set_hemisphere_south',         'TTHS1',      '','set South hemisphere';
     'set_home_pos',                 'X31%02d%02d%02d','','sync home position';
     'set_keypad_off',               'TTSFr',      '','disable keypad';
     'set_keypad_on',                'TTRFr',      '','enable keypad';
     'set_meridianflip_forced_off',  'TTRFd',      '','disable meridian flip forced';  
     'set_meridianflip_forced_on',   'TTSFd',      '','enable meridian flip forced';     
     'set_meridianflip_off',         'TTRFs',      '','disable meridian flip';     
-    'set_meridianflip_on' ,         'TTSFs',      '','enable meridian flip';     
+    'set_meridianflip_on' ,         'TTSFs',      '','enable meridian flip';    
+    'set_mount_gear_ratio',         'TTSM%1d',    '','set mount model (x=1-8 for M0,576,Linear,720,645,1440,Omega,B230)'; 
     'set_park_pos',                 'X352',       '','sync park position (0)';
+    'set_polar_led',                'X07%1d',     '','set the polar LED level in 10% (x=0-9)';
     'set_pulse_east',               'Mge%04d',    '','move east for (t msec)';
     'set_pulse_north',              'Mgn%04d',    '','move north for (t msec)';
     'set_pulse_south',              'Mgs%04d',    '','move south for (t msec)';
     'set_pulse_west',               'Mgw%04d',    '','move west for (t msec)';
-    'set_ra',                       'Sr%02d:%02d:%02d', '','set RA(hh,mm,ss)';
-    'set_sidereal_time',            'X32%02hd%02hd%02hd','','set local sideral time(hexa hh,mm,ss)';
-    'set_site_latitude',            'St%+03d*%02d:%02d', '','set site latitude(dd,mm,ss)'; 
-    'set_site_longitude',           'Sg%+04d*%02d:%02d', '','set site longitude(dd,mm,ss)'; 
+    'set_ra',                       'Sr %02d:%02d:%02d', '','set RA(hh,mm,ss)';
+    'set_reverse_ra',               'X1A10',      '','set RA reverse direction';
+    'set_reverse_dec',              'X1A01',      '','set DEC reverse direction';
+    'set_reverse_off',              'X1A00',      '','set normal RA/DEC direction';
+    'set_sidereal_time',            'X32%02d%02d%02d','','set local sidereal time(hh,mm,ss)';
+    'set_site_latitude',            'St%+03d*%02d:%02d#Gt', '','set site latitude(dd,mm,ss)'; 
+    'set_site_longitude',           'Sg%+04d*%02d:%02d#Gg', '','set site longitude(dd,mm,ss)'; 
     'set_speed_center',             'RC',         '','set slew speed center (2/4)';     
     'set_speed_find',               'RM',         '','set slew speed find (3/4)';     
     'set_speed_guide',              'RG',         '','set slew speed guide (1/4)';     
     'set_speed_max',                'RS',         '','set slew speed max (4/4)';     
     'set_st4_off',                  'TTRFh',      '','disable ST4 port';
     'set_st4_on',                   'TTSFh',      '','enable ST4 port';
+    'set_stargo_on',                'X3E1',       '','set stargo on';
+    'set_stargo_off',               'X3E0',       '','set stargo off';
+    'set_system_speed_center_2',    'X03007:0010','','set system center speed to 2';
+    'set_system_speed_center_3',    'X0300510010','','set system center speed to 3';
+    'set_system_speed_center_4',    'X03003=0010','','set system center speed to 4';
+    'set_system_speed_center_6',    'X0300280010','','set system center speed to 6 (default)';
+    'set_system_speed_center_8',    'X03001>0010','','set system center speed to 8';
+    'set_system_speed_center_10',   'X0300180010','','set system center speed to 10';
+    'set_system_speed_guide_10',    'X0300280031','','set system guide speed to 10';
+    'set_system_speed_guide_15',    'X0300280020','','set system guide speed to 15';
+    'set_system_speed_guide_20',    'X0300280018','','set system guide speed to 20';
+    'set_system_speed_guide_30',    'X0300280010','','set system guide speed to 30 (default)';
+    'set_system_speed_guide_50',    'X030028000','', 'set system guide speed to 50';
+    'set_system_speed_guide_75',    'X0300280006','','set system guide speed to 75';
+    'set_system_speed_guide_100',   'X0300280005','','set system guide speed to 100';
+    'set_system_speed_guide_150',   'X0300280003','','set system guide speed to 150';
     'set_system_speed_fastest',     'TTMX1212',   '','set system slew speed max (4/4)';     
-    'set_system_speed_fast',        'TTMX0909',   '','set system slew speed fast (3/4)';     
+    'set_system_speed_fast',        'TTMX0909',   '','set system slew speed fast (3/4) (default)'; 
     'set_system_speed_low',         'TTMX0606',   '','set system slew speed low (1/4)';     
     'set_system_speed_medium',      'TTMX0808',   '','set system slew speed medium (2/4)';     
     'set_time',                     'SL %02d:%02d:%02d', '0','set local time(hh,mm,ss)';
-    'set_tracking_lunar',           'TL',         '','set tracking lunar';
+    'set_tracking_lunar',           'X123#:TL',         '','set tracking lunar';
     'set_tracking_none',            'TM',         '','set tracking none';
-    'set_tracking_off',             'X120',       '','enable tracking';     
-    'set_tracking_on',              'X122',       '','disable tracking';     
-    'set_tracking_rate',            'X1E%04d',    '','set tracking rate';
-    'set_tracking_sidereal',        'TQ',         '','set tracking sidereal';
-    'set_tracking_solar',           'TS',         '','set tracking solar';
+    'set_tracking_off',             'X120',       '','disable tracking';     
+    'set_tracking_on',              'X122',       '','enable tracking';     
+    'set_tracking_rate_ra',         'X1E%04d',    '','set tracking rate on RA  (xxxx=1000+-500:500)';
+    'set_tracking_rate_dec',        'X1F%04d',    '','set tracking rate on DEC (xxxx=1000+-500:500)';
+    'set_tracking_sidereal',        'X123#:TQ',         '','set tracking sidereal';
+    'set_tracking_solar',           'X123#:TS',         '','set tracking solar';
     'set_UTCoffset',                'SG %+03d',   '','set UTC offset(hh)';
     'abort',                        'Q',          '','abort current move'; 
+    'full_abort',                   'FQ',         '','full abort/stop (switch off)';
     'home',                         'X361',       '','send mount to home (pA)';
     'park',                         'X362',       '','send mount to park (pB)';
     'start_slew_east',              'Me',         '','start to move east';
@@ -1071,8 +1147,12 @@ function [LST, JD, GST] = getLocalSiderealTime(longitude, t0)
   %   getLocalSiderealTime(longitude, [year month day hour minute seconds]) uses
   %   specified date and time.
   %
-  %   getLocalSiderealTime(longitude) uses current date and time.
-  if nargin == 1
+  %   getLocalSiderealTime(longitude) uses current date and time (but does not 
+  %   correct for UTC offset).
+  if nargin < 1
+    longitude = 2;
+  end
+  if nargin <= 1
     t0 = clock;
   end
   fprintf('Date                               %s\n', datestr(t0));
@@ -1088,11 +1168,13 @@ function [LST, JD, GST] = getLocalSiderealTime(longitude, t0)
   GST0 = mod(GST0, 360);  % GST0 range [0..360]
   fprintf('Greenwich sidereal time at 0 hr UT %6.4f [deg]\n',GST0);
   GST = GST0 + 360.98564724*UT/24;
-  GST = mod(GST, 360);  % GST0 range [0..360]
-  %fprintf('Greenwich sidereal time at UT[hours] %6.4f [deg]\n',GST);
+  GST = mod(GST, 360);  % GST range [0..360]
+  fprintf('Greenwich sidereal time at UT[h]   %6.4f [deg]\n',GST);
   LST = GST + longitude;
   LST = mod(LST, 360);  % LST range [0..360]
   fprintf('Local sidereal time                %6.4f [deg]\n',LST);
+  [h,m,s] = angle2hms(LST);
+  fprintf('                                   %2d:%2d:%2d\n',h,m,s);
 end % getLocalSiderealTime
 
 function place = getplace
@@ -1129,7 +1211,7 @@ end % hms2angle
 function str = repradec(str)
   %repradec: replace string stuff and get it into num
   str = lower(str);
-  for rep = {'h','m','s',':','°','deg','d','''','"'}
+  for rep = {'h','m','s',':','°','deg','d','''','"','*'}
     str = strrep(str, rep{1}, ' ');
   end
   str = str2num(str);
