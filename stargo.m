@@ -927,17 +927,6 @@ function [p,self] = parseparams(self)
   
   % check if we have a Z1 status string in received buffer
   toremove = [];
-  if ~isempty(strfind(recv, 'Z1'))
-    % Z1: we append a Z1 parsing rule.
-    c = struct('name', 'get_status', ...
-      'send', '', 'recv', ':Z1%1d%1d%1d', 'comment','status [motors=OFF,DEC,RA,all_ON,track=OFF,Moon,Sun,Star,speed=Guide,Center,Find,Max]');
-    if isempty(self.bufferSent)
-      self.bufferSent = c;
-    else
-      self.bufferSent(end+1) = c;
-    end
-    toremove = numel(self.bufferSent); % will remove Z1 afterwards
-  end
   allSent = self.bufferSent; 
   % we search for a pattern in sent that matches the actual recieved string
   for indexR=1:numel(recv)
