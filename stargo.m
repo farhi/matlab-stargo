@@ -255,10 +255,10 @@ classdef stargo < handle
         list = { 'get_radec', 'get_motors', 'get_site_latitude', 'get_site_longitude', ...
           'get_st4', 'get_alignment', 'get_keypad', 'get_meridian', 'get_park', ...
           'get_system_speed_slew', 'get_autoguiding_speed', 'get_sideofpier','get_ra','get_dec', ...
-          'get_meridian_forced','get_torque','get_precision','get_unkown_x1b','get_motors_status'};
+          'get_meridian_forced','get_torque','get_precision','get_unkown_x1b','get_motor_status'};
         % invalid: get_localdate get_locattime get_UTCoffset get_tracking_freq
       otherwise % {'short','fast'}
-        list = {'get_radec','get_motors','get_ra','get_dec','get_motors_status'};
+        list = {'get_radec','get_motors','get_ra','get_dec','get_motor_status'};
       end
       val = queue(self, list);
       notify(self,'updated');
@@ -306,6 +306,14 @@ classdef stargo < handle
           self.status = 'TRACKING';
         elseif all(self.state.get_motors == 0)
           self.status = 'STOPPED';
+        end
+      end
+      if ~isfield(self.state,'get_motors') || numel(self.state.get_motors) ~= 2
+        if isfield(self.state, 'get_motor_status') && numel(self.state.get_motor_status) >=2
+          % [motors=OFF,DEC,RA,all_ON; track=OFF,Moon,Sun,Star; speed=Guide,Center,Find,Max]
+          if     self.state.get_motor_status(1) == 0, self.status = 'STOPPED';
+          elseif self.state.get_motor_status(1) > 0,  self.status = 'TRACKING';
+          end
         end
       end
       % 'get_park',      'X38','query tracking state(0=unparked,1=homed,2=parked,A=slewing,B=slewing2park)';   
@@ -358,9 +366,9 @@ classdef stargo < handle
       identify(self);
       % normal sequence: 
       % X46r(get) X38(get_park) X22(get_autoguiding_speed) TTGM(set) TTGT(get_torque) X05(get_precision)
-      % TTGHS(set) X1B TTSFG(set) X3C(get_motors_status) X3E1(set_stargo_on) Gt Gg
-      queue(self, {':X46r#','get_park','get_autoguiding_speed',':TTGM#','get_torque', ...
-        'get_precision',':TTGHS#','get_unkown_x1b',':TTSFG#','get_motors_status','set_stargo_on', ...
+      % TTGHS(set) X1B TTSFG(set) X3C(get_motor_status) X3E1(set_stargo_on) Gt Gg
+      queue(self, {'get_unkown_x46r','get_park','get_autoguiding_speed',':TTGM#','get_torque', ...
+        'get_precision',':TTGHS#','get_unkown_x1b',':TTSFG#','get_motor_status','set_stargo_on', ...
         'get_site_latitude','get_site_longitude', ...
         'set_speed_guide','set_tracking_sidereal','set_tracking_on', ...
         'set_highprec', 'set_keypad_on', 'set_st4_on','set_system_speed_slew_fast'});
@@ -514,9 +522,10 @@ classdef stargo < handle
       if nargin < 2, track = 'get'; end
       switch lower(strtok(track))
       case 'get'
-        if isfield(self.state, 'get_motors_status') && isnumeric(self.state.get_motors_status)
+        if isfield(self.state, 'get_motor_status') && isnumeric(self.state.get_motor_status) ...
+        && numel(self.state.get_motor_status) >= 2
           % [motors=OFF,DEC,RA,all_ON; track=OFF,Moon,Sun,Star; speed=Guide,Center,Find,Max]
-          track = self.state.get_motors_status(2);
+          track = self.state.get_motor_status(2); % get track speed state
           tracks = {'off','lunar','solar','sidereal'};
           try; track = tracks{track+1}; end
         elseif isfield(self.state, 'get_alignment') && iscell(self.state.get_alignment) ...
@@ -571,8 +580,11 @@ classdef stargo < handle
       levels={'guide','center','find','max'};
       if nargin < 2 || isempty(level)
         % [motors=OFF,DEC,RA,all_ON; track=OFF,Moon,Sun,Star; speed=Guide,Center,Find,Max]
-        level = self.state.get_motors_status(3);
-        try; level=levels{level+1}; end
+        if isfield(self.state, 'get_motor_status') && isnumeric(self.state.get_motor_status) ...
+        && numel(self.state.get_motor_status) >= 3
+          level = self.state.get_motor_status(3); % slew speed
+          try; level=levels{level+1}; end
+        else level = []; end
       end
       if nargin < 2
         return
@@ -768,57 +780,109 @@ classdef stargo < handle
       config_meridian = {'auto','off','forced'};
       index = strcmp(strtok(config_meridian), meridianflip(self));
       config_meridian = config_meridian([ find(index) find(~index) ]);
-      if tracking(self)
-        config_tracking = {'on','off','sidereal (stars)','lunar','solar'};
-      else
-        config_tracking = {'off','on','sidereal (stars)','lunar','solar'};
+      
+      config_tracking = {'on','off','sidereal (stars)','lunar','solar'};
+      index = strcmp(strtok(config_tracking), tracking(self));
+      config_tracking = config_tracking([ find(index) find(~index) ]);
+      
+      config_slew_val = [ 6 8 9 12 ];
+      config_slew={'low (6)','medium (8)','fast (9,default)','fastest (12, only on 15-18 V)'}; % from get_system_speed_slew
+      if isfield(self.state,'get_system_speed_slew') && numel(self.state.get_system_speed_slew) == 2
+        index = config_slew_val == self.state.get_system_speed_slew(1);
+        config_slew = config_slew([ find(index) find(~index) ]);
       end
-      config_slew={'6: low','8: medium','9: fast','12: fastest (15-18 V)'}; % from get_system_speed_slew
-      config_guide={'10','15','20','30','50','75','100','150'};
-      % usual initial config:
-      % self.state.get_site_longitude=[2  20 0];
-      % self.state.get_site_latitude=[48 52 0];
-      % self.UTCoffset=2;
-      % self.state.get_st4=0;
-      % self.state.get_keypad=0;
-      % self.state.get_system_speed_slew=[6 6];
-      % self.state.get_autoguiding_speed=[30 30];
-      [config, button] = settingsdlg( ...
-        'title',[ mfilename ': mount settings' ], ...
+      % display dialogue
+      [config, button, config0] = settingsdlg( ...
+        'title',[ mfilename ': Avalon mount settings' ], ...
         'Description',[ 'Please check/update the ' mfilename ...
                         ' configuration.' ], ...
         {'Longitude [HH MM SS]','longitude'}, num2str(self.state.get_site_longitude), ...
         {'Latitude [DD MM SS]','latitude'}, num2str(self.state.get_site_latitude), ...
         {'UTC offset (dayligh saving)','UTCoffset'}, self.UTCoffset, ...
         {'Tracking','tracking'}, config_tracking, ...
+        {'Polar LED light level [in %]','polar_led'},{'0 (off)','10','20','30','40','50','60','70','80','90'}, ...
         'separator','   ', ...
         {'Meridian flip','meridianflip'}, config_meridian, ...
         {'ST4 port connected','st4'}, logical(self.state.get_st4), ...
         {'Keypad connected','keypad'}, logical(self.state.get_keypad), ...
-        {'Equatorial/Alt-Az mode','mode'}, {'equatorial','altaz'}, ...
-        {'Auto guiding speed [RA DEC in %, e.g. 30 stands for 0.30]','set_guiding_speed'}, num2str(self.state.get_autoguiding_speed), ...
-        {'Hemisphere','hemisphere'}, {'North','South'}, ...
-        {'Mount gear ratio','mount_gear_ratio'},{'1: M-zero','2: 576','3: Linear','4: 720','5: 645','6: 1440','7: Omega','8: B230'}, ...
-        {'Polar LED light level [in %]','polar_led'},{'off','10','20','30','40','50','60','70','80','90'}, ...
-        {'Reverse RA', 'reverse_ra'}, false, ...
-        {'Reverse DEC','reverse_dec'}, true, ...
-        {'System speed: center (default:6)','system_speed_center'}, {'2','3','4','6','8','10'}, ...
-        {'System speed: guide (default:30)','system_speed_guide'},  {'10','15','20','30','50','75','100','150'}, ...
-        {'System speed: slew (default:fast)', 'system_speed_slew'}, config_slew ...
+        {'Equatorial/Alt-Az mode','mode'}, {'unset','Equatorial','AltAz'}, ...
+        {'Hemisphere','hemisphere'}, {'unset','North','South'}, ...
+        'separator','Advanced settings', ...
+        {'Mount model','mount_gear_ratio'},{'unset','1 (M-zero)','2 (576)','3 (Linear)','4 (720)','5 (645)','6 (1440)','7 (Omega)','8 (B230)'}, ...
+        {'Auto guiding speed [RA DEC, in %, e.g. 30 stands for 0.30]','autoguiding_speed'}, num2str(self.state.get_autoguiding_speed), ...
+        {'Reverse RA/DEC', 'reverse_radec'}, {'unset','normal','RA reversed','DEC reversed', 'RA/DEC reversed'}, ...
+        {'System speed: center','system_speed_center'}, {'unset','2','3','4','6 (default)','8','10'}, ...
+        {'System speed: guide','system_speed_guide'},  {'unset','10','15','20','30 (default)','50','75','100','150'}, ...
+        {'System speed: slew', 'system_speed_slew'}, config_slew ...
       );
       
       if isempty(button) || strcmp(button,'cancel') return; end
-      
+
       % check for changes
-      if isfinite(config.UTCoffset)
-        write(self, 'set_UTCoffset', round(config.UTCoffset));
+      config.longitude  = repradec(config.longitude);
+      config.latitude  = repradec(config.latitude);
+      config.UTCoffset = str2double(config.UTCoffset);
+
+      if ~strcmp(config.tracking, config0.tracking)
+        tracking(self, strtok(config.tracking));
       end
-      if config.st4, write(self, 'set_st4_on');
-      else           write(self, 'set_st4_off'); end
-      if config.keypad, write(self, 'set_keypad_on');
-      else           write(self, 'set_keypad_off'); end
+      if ~strcmp(config.polar_led, config0.polar_led)
+        config.polar_led = strtok(config.polar_led);
+        write(self, 'set_polar_led', str2double(config.polar_led(1)));
+      end
+      if ~strcmp(config.meridianflip, config0.meridianflip)
+        meridianflip(self, strtok(config.meridianflip));
+      end
+      if config.st4 ~= self.state.get_st4
+        if config.st4, write(self, 'set_st4_on');
+        else           write(self, 'set_st4_off'); end
+      end
+      if config.keypad ~= self.state.get_keypad
+        if config.keypad, write(self, 'set_keypad_on');
+        else           write(self, 'set_keypad_off'); end
+      end
+      if ~strcmp(config.mode, 'unset')
+        write(self, [ 'set_' lower(config.mode) ]);
+      end
+      if ~strcmp(config.hemisphere, 'unset')
+        write(self, [ 'set_hemisphere_' lower(config.hemisphere) ]);
+      end
+      if ~strcmp(config.mount_gear_ratio, 'unset')
+        config.mount_gear_ratio = strtok(config.mount_gear_ratio);
+        write(self, 'set_mount_gear_ratio', config.mount_gear_ratio(1));
+      end
+      config.autoguiding_speed  = str2num(config.autoguiding_speed);
+      config0.autoguiding_speed = str2num(config0.autoguiding_speed);
+      if any(config.autoguiding_speed ~= config0.autoguiding_speed) && numel(config.autoguiding_speed) == 2
+        write(self, 'set_autoguiding_speed_ra', config.autoguiding_speed(1));
+        write(self, 'set_autoguiding_speed_dec', config.autoguiding_speed(2));
+      end
+      if ~strcmp(config.reverse_radec, 'unset')
+        switch strtok(config.reverse_radec)
+        case 'normal'
+          config.reverse_radec = [ 0 0 ];
+        case 'RA'
+          config.reverse_radec = [ 1 0 ];
+        case 'DEC'
+          config.reverse_radec = [ 0 1 ];
+        case 'RA/DEC'
+          config.reverse_radec = [ 1 1 ];
+        end
+        write(self, 'set_reverse_radec', config.reverse_radec);
+      end
+      if ~strcmp(config.system_speed_center, 'unset')
+        write(self, [ 'set_system_speed_center_' strtok(config.system_speed_center) ]);
+      end
+      if ~strcmp(config.system_speed_guide, 'unset')
+        write(self, [ 'set_system_speed_guide_' strtok(config.system_speed_guide) ]);
+      end
+      config.system_speed_slew  = str2num(config.system_speed_slew);
+      config0.system_speed_slew = str2num(config0.system_speed_slew);
+      if any(config.system_speed_slew ~= config0.system_speed_slew) && numel(config.system_speed_slew) == 2
+        write(self, [ 'set_system_speed_slew_' config.system_speed_slew ]);
+      end
       
-      % send date, time, daylight saving shift.
+      % always sync date, time, daylight saving shift.
       t0=clock; 
       write(self, 'set_date', t0(1:3));
       write(self, 'set_time', t0(4:6));
@@ -828,20 +892,6 @@ classdef stargo < handle
       t0(4)=t0(4)-self.UTCoffset; % allows to compute properly the Julian Day from Stellarium
       time(self, t0, 'home'); % sets LST
       time(self, t0, 'time'); % sets time and date
-
-      tracking(self, strtok(config.tracking));
-      meridianflip(self, strtok(config.meridianflip));
-      
-      % these do not work: the StarGo gets blocked
-      config.longitude = str2num(repradec(config.longitude));
-      if numel(config.longitude) == 3 && all(isfinite(config.longitude))
-        write(self, 'set_site_longitude', round(config.longitude));
-      end
-      config.latitude = str2num(repradec(config.latitude));
-      if numel(config.latitude) == 3 && all(isfinite(config.latitude))
-        write(self, 'set_site_latitude', round(config.latitude))
-      end
-      write(self, ['set_system_speed_' strtok(config.system_speed)]);
       
     end % settings
     
@@ -1025,7 +1075,7 @@ function c = getcommands
   % list of commands to be used with StarGo, derived from LX200 protocol.
   commands = { ...                   
     'get_alignment',                'GW',         '%c%c%1d', 'query Scope alignment status(mt,tracking,nb_alignments)';
-    'get_firmwaredate',             'GVD',        '%s','query firmware date'; 
+    'get_firmwaredate',             'GVD',        'd%s','query firmware date'; 
     'get_firmware',                 'GVN',        '%f','query firmware version';
     'get_ra',                       'GR',         '%d:%d:%d','query RA  (h:m:s)'; 
     'get_dec',                      'GD',         '%d*%d:%d','query DEC (d:m:s)'; 
@@ -1045,9 +1095,9 @@ function c = getcommands
     'get_system_speed_slew',        'TTGMX',      '%da%d','query slewing speed(xx=6,8,9,12,yy)';    
     'get_st4',                      'TTGFh',      'vh%1d','query ST4 status(TF)';  
     'get_torque',                   'TTGT',       't%3d','query motor torque (x=50-150 in %)';
-    'get_unkown_x1b',               'X1B',        '%s','query X1B, e.g. returns "w01"';
-    'get_motors_status',            'X3C',        ':Z1%1d%1d%1d','query motor status [motors=OFF,DEC,RA,all_ON;track=OFF,Moon,Sun,Star;speed=Guide,Center,Find,Max]';
-    'get_unkown_x46r',              'X46r',       '%s','query X46r, e.g. "c1"';
+    'get_unkown_x1b',               'X1B',        'w%2d','query X1B, e.g. returns "w01"';
+    'get_motor_status',             'X3C',        ':Z1%1d%1d%1d','query motor status [motors=OFF,DEC,RA,all_ON;track=OFF,Moon,Sun,Star;speed=Guide,Center,Find,Max]';
+    'get_unkown_x46r',              'X46r',       'c%1d','query X46r, e.g. "c1"';
     'set_altaz',                    'AA',         '',     'set to alt/az mode';
     'set_autoguiding_speed_dec',    'X21%02d',    '',     'set auto guiding speed on DEC (xx for 0.xx %)';
     'set_autoguiding_speed_ra',     'X20%02d',    '',     'set auto guiding speed on RA (xx for 0.xx %)';
@@ -1074,9 +1124,7 @@ function c = getcommands
     'set_pulse_south',              'Mgs%04d',    '','move south for (t msec)';
     'set_pulse_west',               'Mgw%04d',    '','move west for (t msec)';
     'set_ra',                       'Sr %02d:%02d:%02d', '','set RA(hh,mm,ss)';
-    'set_reverse_ra',               'X1A10',      '','set RA reverse direction';
-    'set_reverse_dec',              'X1A01',      '','set DEC reverse direction';
-    'set_reverse_off',              'X1A00',      '','set normal RA/DEC direction';
+    'set_reverse_radec',            'X1A%1d%1d',  '','set RA/DEC reverse direction';
     'set_sidereal_time',            'X32%02d%02d%02d','','set local sidereal time(hh,mm,ss)';
     'set_site_latitude',            'St%+03d*%02d:%02d#Gt', '','set site latitude(dd,mm,ss)'; 
     'set_site_longitude',           'Sg%+04d*%02d:%02d#Gg', '','set site longitude(dd,mm,ss)'; 

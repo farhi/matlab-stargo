@@ -1,4 +1,4 @@
-function [settings, button] = settingsdlg(varargin)
+function [settings, button, settings0] = settingsdlg(varargin)
 % SETTINGSDLG             Default dialog to produce a settings-structure
 %
 % settings = SETTINGSDLG('fieldname', default_value, ...) creates a modal
@@ -17,6 +17,9 @@ function [settings, button] = settingsdlg(varargin)
 % pressed, in addition to the (modified) structure [settings]. Either 'ok',
 % 'cancel' or [] are possible values. The empty output means that the
 % dialog was closed before either Cancel or OK were pressed.
+%
+% [settings, button, settings0] = SETTINGSDLG(...) returns the initial settings
+% to identify changes.
 %
 % SETTINGSDLG('title', 'window_title') uses 'window_title' as the dialog's
 % title. The default is 'Adjust settings'.
@@ -418,6 +421,7 @@ edit_bgcolor = 'White';
                      total_width/2.5,control_height*1.5],...
         'Callback', @OK)
 
+    settings0 = OK; % get current config
     % move to center of screen and make visible
     movegui(fighandle, window_position);
     set(fighandle, 'Visible', 'on');
@@ -468,7 +472,7 @@ edit_bgcolor = 'White';
     % - update fields in [settings]
     % - assign [button] output argument ('ok')
     % - kill window
-    function OK(varargin) %#ok<VANUS>
+    function settings=OK(varargin) %#ok<VANUS>
 
         % button pressed
         button = 'OK';
@@ -501,7 +505,7 @@ edit_bgcolor = 'White';
         end
 
         %  kill window
-        delete(fighandle);
+        if nargin, delete(fighandle); end % when executed from callback
     end
 
     % Cancel button:
