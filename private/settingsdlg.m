@@ -422,6 +422,7 @@ edit_bgcolor = 'White';
         'Callback', @OK)
 
     settings0 = OK; % get current config
+    
     % move to center of screen and make visible
     movegui(fighandle, window_position);
     set(fighandle, 'Visible', 'on');
@@ -472,7 +473,10 @@ edit_bgcolor = 'White';
     % - update fields in [settings]
     % - assign [button] output argument ('ok')
     % - kill window
-    function settings=OK(varargin) %#ok<VANUS>
+    function s=OK(varargin) %#ok<VANUS>
+    
+        initial=~nargin;  % true when requesting initial settings
+        s = settings;
 
         % button pressed
         button = 'OK';
@@ -493,19 +497,29 @@ edit_bgcolor = 'White';
                 val = str2double(str);
                 % insert this double in [settings]. If it was not a
                 % double, insert string instead
-                if ~isnan(val), settings.(fields{i}) = val;
-                else            settings.(fields{i}) = str;
+                if ~initial
+                  if ~isnan(val), settings.(fields{i}) = val;
+                  else            settings.(fields{i}) = str;
+                  end
+                else
+                  if ~isnan(val), s.(fields{i}) = val;
+                  else            s.(fields{i}) = str;
+                  end
                 end
 
             % checkboxes
             else
                 % we can insert value immediately
-                settings.(fields{i}) = val;
+                if initial
+                  s.(fields{i}) = val;
+                else
+                  settings.(fields{i}) = val;
+                end
             end
         end
 
         %  kill window
-        if nargin, delete(fighandle); end % when executed from callback
+        if ~initial, delete(fighandle); end % when executed from callback
     end
 
     % Cancel button:
