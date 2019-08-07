@@ -56,7 +56,7 @@ classdef stargo < handle
                 
   events
     gotoStart        
-    gotoReached  
+    gotoReached
     moving
     idle   
     updated   
@@ -309,12 +309,15 @@ classdef stargo < handle
         end
       end
       if ~isfield(self.state,'get_motors') || numel(self.state.get_motors) ~= 2
-        if isfield(self.state, 'get_motor_status') && numel(self.state.get_motor_status) >=2
+        if isfield(self.state, 'get_motor_status') && numel(self.state.get_motor_status) >= 2
           % [motors=OFF,DEC,RA,all_ON; track=OFF,Moon,Sun,Star; speed=Guide,Center,Find,Max]
           if     self.state.get_motor_status(1) == 0, self.status = 'STOPPED';
           elseif self.state.get_motor_status(1) > 0,  self.status = 'TRACKING';
           end
         end
+      end
+      if isfield(self.state, 'get_motor_status') && numel(self.state.get_motor_status) >= 3
+        self.state.zoom = self.state.get_motor_status(3)+1; % slew speed in 1:4
       end
       % 'get_park',      'X38','query tracking state(0=unparked,1=homed,2=parked,A=slewing,B=slewing2park)';   
       if isfield(self.state,'get_park')
@@ -578,24 +581,28 @@ classdef stargo < handle
       %
       %   ZOOM(s, level) sets the zoom level (1-4)
       levels={'guide','center','find','max'};
+      current_level = nan;
+      if isfield(self.state, 'zoom') && isnumeric(self.state.zoom) 
+        current_level = self.state.zoom;
+      end
+      if isfinite(current_level) && 1 <= current_level && current_level <= 4
+        current_level_char = levels{current_level}; 
+      else
+        current_level_char = ''; 
+      end
       if nargin < 2 || isempty(level)
-        % [motors=OFF,DEC,RA,all_ON; track=OFF,Moon,Sun,Star; speed=Guide,Center,Find,Max]
-        if isfield(self.state, 'get_motor_status') && isnumeric(self.state.get_motor_status) ...
-        && numel(self.state.get_motor_status) >= 3
-          level = self.state.get_motor_status(3); % slew speed
-          try; level=levels{level+1}; end
-        else level = []; end
+        level=current_level;
       end
       if nargin < 2
         return
       elseif strcmp(level, 'in')
-        level = level-1;      % slower speed
+        level = current_level-1; % slower speed
       elseif strcmp(level, 'out')
-        level = level+1; % faster
+        level = current_level+1; % faster
       elseif ischar(level)
         level=find(strcmp(level, levels));
       end
-      if ~isnumeric(level) || isempty(level), level=[]; return; end
+      if ~isnumeric(level) || isempty(level), return; end
       if     level < 1, level=1;
       elseif level > 4, level=4; end
       level=round(level);
@@ -604,7 +611,6 @@ classdef stargo < handle
       if any(level == 1:4)
         write(self, z{level});
         disp([ '[' datestr(now) '] ' mfilename '.zoom: ' z{level} ]);
-        self.state.zoom = level;
       end
 
     end % zoom
@@ -773,125 +779,16 @@ classdef stargo < handle
       open_system_browser(url);
     end % web
     
-    function config = settings(self)
+    function config = settings(self, fig, config0)
       % SETTINGS display a dialogue to set board settings
-      
-      % pop-up choices must start with the current one
-      config_meridian = {'auto','off','forced'};
-      index = strcmp(strtok(config_meridian), meridianflip(self));
-      config_meridian = config_meridian([ find(index) find(~index) ]);
-      
-      config_tracking = {'on','off','sidereal (stars)','lunar','solar'};
-      index = strcmp(strtok(config_tracking), tracking(self));
-      config_tracking = config_tracking([ find(index) find(~index) ]);
-      
-      config_slew_val = [ 6 8 9 12 ];
-      config_slew={'low (6)','medium (8)','fast (9,default)','fastest (12, only on 15-18 V)'}; % from get_system_speed_slew
-      if isfield(self.state,'get_system_speed_slew') && numel(self.state.get_system_speed_slew) == 2
-        index = config_slew_val == self.state.get_system_speed_slew(1);
-        config_slew = config_slew([ find(index) find(~index) ]);
-      end
-      % display dialogue
-      [config, button, config0] = settingsdlg( ...
-        'title',[ mfilename ': Avalon mount settings' ], ...
-        'Description',[ 'Please check/update the ' mfilename ...
-                        ' configuration.' ], ...
-        {'Longitude [HH MM SS]','longitude'}, num2str(self.state.get_site_longitude), ...
-        {'Latitude [DD MM SS]','latitude'}, num2str(self.state.get_site_latitude), ...
-        {'UTC offset (dayligh saving)','UTCoffset'}, self.UTCoffset, ...
-        {'Tracking','tracking'}, config_tracking, ...
-        {'Polar LED light level [in %]','polar_led'},{'0 (off)','10','20','30','40','50','60','70','80','90'}, ...
-        'separator','   ', ...
-        {'Meridian flip','meridianflip'}, config_meridian, ...
-        {'ST4 port connected','st4'}, logical(self.state.get_st4), ...
-        {'Keypad connected','keypad'}, logical(self.state.get_keypad), ...
-        {'Equatorial/Alt-Az mode','mode'}, {'unset','Equatorial','AltAz'}, ...
-        {'Hemisphere','hemisphere'}, {'unset','North','South'}, ...
-        'separator','Advanced settings', ...
-        {'Mount model','mount_gear_ratio'},{'unset','1 (M-zero)','2 (576)','3 (Linear)','4 (720)','5 (645)','6 (1440)','7 (Omega)','8 (B230)'}, ...
-        {'Auto guiding speed [RA DEC, in %, e.g. 30 stands for 0.30]','autoguiding_speed'}, num2str(self.state.get_autoguiding_speed), ...
-        {'Reverse RA/DEC', 'reverse_radec'}, {'unset','normal','RA reversed','DEC reversed', 'RA/DEC reversed'}, ...
-        {'System speed: center','system_speed_center'}, {'unset','2','3','4','6 (default)','8','10'}, ...
-        {'System speed: guide','system_speed_guide'},  {'unset','10','15','20','30 (default)','50','75','100','150'}, ...
-        {'System speed: slew', 'system_speed_slew'}, config_slew ...
-      );
-      
-      if isempty(button) || strcmp(button,'cancel') return; end
+      %  SETTINGS(s) display a dialogue to set mount configuration
 
-      % check for changes
-      config.longitude  = repradec(config.longitude);
-      config.latitude  = repradec(config.latitude);
-      config.UTCoffset = str2double(config.UTCoffset);
-
-      if ~strcmp(config.tracking, config0.tracking)
-        tracking(self, strtok(config.tracking));
+      config = [];
+      if nargin == 1
+        config = settings_dialogue(self);
+      elseif isstruct(config0)
+        config = settings_apply(self, fig, config0);
       end
-      if ~strcmp(config.polar_led, config0.polar_led)
-        config.polar_led = strtok(config.polar_led);
-        write(self, 'set_polar_led', str2double(config.polar_led(1)));
-      end
-      if ~strcmp(config.meridianflip, config0.meridianflip)
-        meridianflip(self, strtok(config.meridianflip));
-      end
-      if config.st4 ~= self.state.get_st4
-        if config.st4, write(self, 'set_st4_on');
-        else           write(self, 'set_st4_off'); end
-      end
-      if config.keypad ~= self.state.get_keypad
-        if config.keypad, write(self, 'set_keypad_on');
-        else           write(self, 'set_keypad_off'); end
-      end
-      if ~strcmp(config.mode, 'unset')
-        write(self, [ 'set_' lower(config.mode) ]);
-      end
-      if ~strcmp(config.hemisphere, 'unset')
-        write(self, [ 'set_hemisphere_' lower(config.hemisphere) ]);
-      end
-      if ~strcmp(config.mount_gear_ratio, 'unset')
-        config.mount_gear_ratio = strtok(config.mount_gear_ratio);
-        write(self, 'set_mount_gear_ratio', config.mount_gear_ratio(1));
-      end
-      config.autoguiding_speed  = str2num(config.autoguiding_speed);
-      config0.autoguiding_speed = str2num(config0.autoguiding_speed);
-      if any(config.autoguiding_speed ~= config0.autoguiding_speed) && numel(config.autoguiding_speed) == 2
-        write(self, 'set_autoguiding_speed_ra', config.autoguiding_speed(1));
-        write(self, 'set_autoguiding_speed_dec', config.autoguiding_speed(2));
-      end
-      if ~strcmp(config.reverse_radec, 'unset')
-        switch strtok(config.reverse_radec)
-        case 'normal'
-          config.reverse_radec = [ 0 0 ];
-        case 'RA'
-          config.reverse_radec = [ 1 0 ];
-        case 'DEC'
-          config.reverse_radec = [ 0 1 ];
-        case 'RA/DEC'
-          config.reverse_radec = [ 1 1 ];
-        end
-        write(self, 'set_reverse_radec', config.reverse_radec);
-      end
-      if ~strcmp(config.system_speed_center, 'unset')
-        write(self, [ 'set_system_speed_center_' strtok(config.system_speed_center) ]);
-      end
-      if ~strcmp(config.system_speed_guide, 'unset')
-        write(self, [ 'set_system_speed_guide_' strtok(config.system_speed_guide) ]);
-      end
-      config.system_speed_slew  = str2num(config.system_speed_slew);
-      config0.system_speed_slew = str2num(config0.system_speed_slew);
-      if any(config.system_speed_slew ~= config0.system_speed_slew) && numel(config.system_speed_slew) == 2
-        write(self, [ 'set_system_speed_slew_' config.system_speed_slew ]);
-      end
-      
-      % always sync date, time, daylight saving shift.
-      t0=clock; 
-      write(self, 'set_date', t0(1:3));
-      write(self, 'set_time', t0(4:6));
-      % 'set_UTCoffset',                'SG %+03d',   '','set UTC offset(hh)';
-      write(self, 'set_UTCoffset', self.UTCoffset);
-      % display date/time settings
-      t0(4)=t0(4)-self.UTCoffset; % allows to compute properly the Julian Day from Stellarium
-      time(self, t0, 'home'); % sets LST
-      time(self, t0, 'time'); % sets time and date
       
     end % settings
     
@@ -1346,3 +1243,165 @@ function c = gotodec(self, dec)
   elseif isempty(self.target_dec), self.target_dec=self.state.get_dec;
   end
 end % gotodec
+
+function config = settings_apply(self, fig, config0)
+  % SETTINGS_APPLY apply settings in structure 'sets'
+  
+  try
+    config = get(fig, 'UserData');
+  catch
+    config = [];
+  end
+  if isempty(config0) || ~isstruct(config0) || ~isstruct(config), return; end
+  % check for changes
+  for f=fieldnames(config)'
+    val  = config.(f{1});
+    val0 = config0.(f{1});
+    remove_me = false;
+    % remove type changed members
+    if ~strcmp(class(val),class(val0)), remove_me=true; 
+    % remove unset members
+    elseif isempty(val) || strcmp(val, 'unset'), remove_me=true; 
+    % remove unchanged members
+    elseif ischar(val) && ischar(val0) && strcmp(val, val0), remove_me=true;
+    elseif isequal(val, val0), remove_me=true; end
+    if remove_me
+      config = rmfield(config, f{1});
+    end
+  end
+  disp 'applying changes:'
+  config
+  % apply changes
+  for f=fieldnames(config)'
+    val = config.(f{1});
+    switch f{1}
+    case 'tracking'
+      tracking(self, strtok(config.tracking));
+    case 'polar_led'
+      config.polar_led = strtok(config.polar_led);
+      write(self, 'set_polar_led', str2double(config.polar_led(1)));
+    case 'meridianflip'
+      meridianflip(self, strtok(config.meridianflip));
+    case 'st4'
+      if config.st4, write(self, 'set_st4_on');
+      else           write(self, 'set_st4_off'); end
+    case 'keypad'
+      if config.keypad, write(self, 'set_keypad_on');
+      else           write(self, 'set_keypad_off'); end
+    case 'mode'
+      write(self, [ 'set_' lower(config.mode) ]);
+    case 'hemisphere'
+      write(self, [ 'set_hemisphere_' lower(config.hemisphere) ]);
+    case 'mount_gear_ratio'
+      config.mount_gear_ratio = strtok(config.mount_gear_ratio);
+      write(self, 'set_mount_gear_ratio', config.mount_gear_ratio(1));
+    case 'autoguiding_speed'
+      config.autoguiding_speed  = str2num(config.autoguiding_speed);
+      if numel(config.autoguiding_speed) == 2
+        write(self, 'set_autoguiding_speed_ra', config.autoguiding_speed(1));
+        write(self, 'set_autoguiding_speed_dec', config.autoguiding_speed(2));
+      end
+    case 'reverse_radec'
+      switch strtok(config.reverse_radec)
+      case 'normal'
+        config.reverse_radec = [ 0 0 ];
+      case 'RA'
+        config.reverse_radec = [ 1 0 ];
+      case 'DEC'
+        config.reverse_radec = [ 0 1 ];
+      case 'RA/DEC'
+        config.reverse_radec = [ 1 1 ];
+      end
+      write(self, 'set_reverse_radec', config.reverse_radec);
+    case 'system_speed_center'
+      write(self, [ 'set_system_speed_center_' strtok(config.system_speed_center) ]);
+    case 'system_speed_guide'
+      write(self, [ 'set_system_speed_guide_' strtok(config.system_speed_guide) ]);
+    case 'system_speed_slew'
+      config.system_speed_slew  = str2num(config.system_speed_slew);
+      if numel(config.system_speed_slew) == 2
+        write(self, [ 'set_system_speed_slew_' config.system_speed_slew ]);
+      end
+    case 'longitude'
+      config.longitude          = repradec(config.longitude);
+      if numel(config.longitude) == 3
+        write(self, 'set_site_longitude', config.longitude);
+      end
+    case 'latitude'
+      config.latitude           = repradec(config.latitude);
+      if numel(config.latitude) == 3
+        write(self, 'set_site_latitude', config.latitude);
+      end
+    otherwise
+      disp([ mfilename ': WARNING: settings: ignoring unkown ' f{1} ' parameter.' ]);
+    end % switch
+  end % for
+
+  % always sync date, time, daylight saving shift.
+  if ~isfield(config, 'UTCoffset')
+    config.UTCoffset = self.UTCoffset;
+  end
+  
+  config.UTCoffset          = str2double(config.UTCoffset);
+  t0=clock; 
+  write(self, 'set_date', t0(1:3));
+  write(self, 'set_time', t0(4:6));
+  % 'set_UTCoffset',                'SG %+03d',   '','set UTC offset(hh)';
+  write(self, 'set_UTCoffset', self.UTCoffset);
+  % display date/time settings
+  t0(4)=t0(4)-self.UTCoffset; % allows to compute properly the Julian Day from Stellarium
+  time(self, t0, 'home'); % sets LST
+  time(self, t0, 'time'); % sets time and date
+
+end % settings_apply
+
+function config=settings_dialogue(self)
+  % SETTINGS_DIALOGUE display a dialogue with mount settings and return a struct
+  % with changed parameters.
+  
+  % pop-up choices must start with the current one
+    config_meridian = {'auto','off','forced'};
+    index = strcmp(strtok(config_meridian), meridianflip(self));
+    config_meridian = config_meridian([ find(index) find(~index) ]);
+    
+    config_tracking = {'on','off','sidereal (stars)','lunar','solar'};
+    index = strcmp(strtok(config_tracking), tracking(self));
+    config_tracking = config_tracking([ find(index) find(~index) ]);
+    
+    config_slew_val = [ 6 8 9 12 ];
+    config_slew={'low (6)','medium (8)','fast (9,default)','fastest (12, only on 15-18 V)'}; % from get_system_speed_slew
+    if isfield(self.state,'get_system_speed_slew') && numel(self.state.get_system_speed_slew) == 2
+      index = config_slew_val == self.state.get_system_speed_slew(1);
+      config_slew = config_slew([ find(index) find(~index) ]);
+    end
+
+    % display dialogue in non-modal to allow background tasks
+    % update is done with CloseReqFcn
+    [~,fig,config] = settingsdlg( ...
+      'title',[ mfilename ': Avalon mount settings' ], ...
+      'Description',[ 'Please check/update the ' mfilename ...
+                      ' configuration.' ], ...
+      'WindowStyle','normal', ...
+      {'Longitude [HH MM SS]','longitude'}, num2str(self.state.get_site_longitude), ...
+      {'Latitude [DD MM SS]','latitude'}, num2str(self.state.get_site_latitude), ...
+      {'UTC offset (dayligh saving)','UTCoffset'}, self.UTCoffset, ...
+      {'Tracking','tracking'}, config_tracking, ...
+      {'Polar LED light level [in %]','polar_led'},{'0 (off)','10','20','30','40','50','60','70','80','90'}, ...
+      'separator','   ', ...
+      {'Meridian flip','meridianflip'}, config_meridian, ...
+      {'ST4 port connected','st4'}, logical(self.state.get_st4), ...
+      {'Keypad connected','keypad'}, logical(self.state.get_keypad), ...
+      {'Equatorial/Alt-Az mode','mode'}, {'unset','Equatorial','AltAz'}, ...
+      {'Hemisphere','hemisphere'}, {'unset','North','South'}, ...
+      'separator','Advanced settings', ...
+      {'Mount model','mount_gear_ratio'},{'unset','1 (M-zero)','2 (576)','3 (Linear)','4 (720)','5 (645)','6 (1440)','7 (Omega)','8 (B230)'}, ...
+      {'Auto guiding speed [RA DEC, in %, e.g. 30 stands for 0.30]','autoguiding_speed'}, num2str(self.state.get_autoguiding_speed), ...
+      {'Reverse RA/DEC', 'reverse_radec'}, {'unset','normal','RA reversed','DEC reversed', 'RA/DEC reversed'}, ...
+      {'System speed: center','system_speed_center'}, {'unset','2','3','4','6 (default)','8','10'}, ...
+      {'System speed: guide','system_speed_guide'},  {'unset','10','15','20','30 (default)','50','75','100','150'}, ...
+      {'System speed: slew', 'system_speed_slew'}, config_slew ...
+    );
+    % apply changed members when deleting settings window
+    set(fig, 'DeleteFcn', @(src,evnt)settings(self, fig, config));
+    
+end % settings_dialogue

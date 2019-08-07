@@ -166,7 +166,7 @@ function [settings, button, settings0] = settingsdlg(varargin)
 
         % Make sure all fieldnames are properly formatted
         % (alternating capitals, no whitespace)
-        if ~strcmpi(fields{ii}, {'Separator';'Title';'Description'})
+        if ~strcmpi(fields{ii}, {'Separator';'Title';'Description';'WindowStyle';'DeleteFcn'})
             whitespace = isspace(fields{ii});
             capitalize = circshift(whitespace,[0,1]);
             fields{ii}(capitalize) = upper(fields{ii}(capitalize));
@@ -205,6 +205,8 @@ edit_bgcolor = 'White';
     description   = getValue( [], 'Description');
     total_width   = getValue(325, 'WindowWidth');
     control_width = getValue(100, 'ControlWidth');
+    windowstyle   = getValue('modal', 'WindowStyle');
+    deletefcn     = getValue([], 'DeleteFcn');
 
     % Window positioning:
     % Put the window in the center of the screen by default.
@@ -235,15 +237,17 @@ edit_bgcolor = 'White';
          'position'        , [scx, scy, total_width, total_height],...% figure position
          'visible'         , 'off',...         % hide the dialog while it is being constructed
          'backingstore'    , 'off',...         % DON'T save a copy in the background
-         'resize'          , 'off', ...        % but just keep it resizable
+         'resize'          , 'on', ...         % but just keep it resizable
          'renderer'        , 'zbuffer', ...    % best choice for speed vs. compatibility
-         'WindowStyle'     ,'modal',...        % window is modal
+         'WindowStyle'     , windowstyle,...   % window is usually modal
          'units'           , 'pixels',...      % better for drawing
          'DockControls'    , 'off',...         % force it to be non-dockable
          'name'            , title,...         % dialog title
          'menubar'         ,'none', ...        % no menubar of course
          'toolbar'         ,'none', ...        % no toolbar
          'NumberTitle'     , 'off',...         % "Figure 1.4728...:" just looks corny
+         'DeleteFcn'       , deletefcn, ...
+         'Tag'             , mfilename, ...
          'color'           , bgcolor);         % use default colorscheme
 
     %% Draw all required uicontrols(), and unhide window
@@ -286,6 +290,9 @@ edit_bgcolor = 'White';
             'position', [separator_offset_X, total_height-textheight, ...
                          total_width, textheight]);
     end
+    
+    % set the windowunits to normalized so that all scales
+    set(fighandle, 'units','normalized');
 
     % Define Y-offsets (different when descriptions are used)
     control_offset_Y = total_height-control_height-description_offset;
@@ -419,7 +426,15 @@ edit_bgcolor = 'White';
         'string'  , 'OK',...
         'position', [total_width*(1-1/2.5)-separator_offset_X,2, ...
                      total_width/2.5,control_height*1.5],...
+        'fontweight','bold', ...
         'Callback', @OK)
+        
+    % set all units to normalized
+    uis = findobj(fighandle, 'type','uicontrol');
+    set(uis, 'units','normalized');
+    for index=1:numel(uis)
+      try; set(uis(index),'fontunits','normalized'); end
+    end
 
     settings0 = OK; % get current config
     
@@ -428,8 +443,11 @@ edit_bgcolor = 'White';
     set(fighandle, 'Visible', 'on');
 
     % WAIT until OK/Cancel is pressed
-    uiwait(fighandle);
-
+    if strcmp(windowstyle,'modal')
+      uiwait(fighandle);
+    else
+      button = fighandle;
+    end
 
 
     %% Helper funcitons
@@ -517,16 +535,21 @@ edit_bgcolor = 'White';
                 end
             end
         end
+        if ~initial
+          % store settings from the dialogue 
+          set(fighandle,'UserData', settings);
+        end
 
         %  kill window
         if ~initial, delete(fighandle); end % when executed from callback
-    end
+    end % OK
 
     % Cancel button:
     % - assign [button] output argument ('cancel')
     % - delete figure (so: return default settings)
     function Cancel(varargin) %#ok<VANUS>
         button = 'cancel';
+        set(fighandle,'UserData', []);
         delete(fighandle);
     end
 
