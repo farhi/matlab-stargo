@@ -88,7 +88,12 @@ classdef stargo < handle
       sb.state.pulsems     = 0;
       sb.state.ra_move     = 0;
       sb.state.dec_move    = 0;
+      sb.state.ra_deg      = 0;
+      sb.state.dec_deg     = 0;
       sb.state.zoom        = 1;
+      sb.state.ra_speed    = 0; % in deg/s
+      sb.state.dec_speed   = 0; % in deg/s
+      sb.state.lastUpdate  = [];
       
       start(sb); % make sure we start with a known configuration
       disp([ '[' datestr(now) '] ' mfilename ': ' sb.version ' connected to ' sb.dev ]);
@@ -246,9 +251,17 @@ classdef stargo < handle
       %   GETSTATUS(s) gets the default status. Results are stored in s.state
       %
       %   GETSTATUS(s,'full') gets the full status.
-      persistent list_all list_fast
+
       if nargin == 1, option = ''; end
       if isempty(option), option='short'; end
+      
+      % get previous ra/dec
+      if isfield(self.state,'lastUpdate') && isnumeric(self.state.lastUpdate)
+        t0      = self.state.lastUpdate;
+        ra_deg  = self.state.ra_deg;
+        dec_deg = self.state.dec_deg;
+      else t0 = []; ra_deg=0; dec_deg=0;
+      end
       
       switch option
       case {'long','full','all'}
@@ -277,10 +290,20 @@ classdef stargo < handle
       elseif  isfield(self.state, 'get_ra') || isfield(self.state, 'get_dec')
         if isfield(self.state, 'get_ra')
           self.ra = sprintf('%d:%d:%.1f', self.state.get_ra(1), self.state.get_ra(2), self.state.get_ra(3));
+          self.state.ra_deg  = hms2angle(self.state.get_ra)*15;
         end
         if isfield(self.state, 'get_dec')
           self.dec= sprintf('%d°%d:%.1f', self.state.get_dec); % the sign is lost here
+          self.state.dec_deg = hms2angle(self.state.get_dec);
         end
+      end
+      
+      % compute speed using elapsed time
+      self.state.lastUpdate= clock;
+      if ~isempty(t0) && etime(self.state.lastUpdate,t0) > 0
+        dt = etime(self.state.lastUpdate,t0);
+        self.state.ra_speed = abs(self.state.ra_deg - ra_deg)/dt;
+        self.state.dec_speed= abs(self.state.dec_deg- dec_deg)/dt;
       end
       
       %   motor state and mount status: get_alignment, get_park
@@ -676,7 +699,7 @@ classdef stargo < handle
         options.WindowStyle='normal';
         options.Interpreter='tex';
         answer=inputdlg(prompt,name, 1, ...
-          {self.target_ra, self.target_dec}, options);
+          {self.ra, self.dec}, options);
         if isempty(answer), return; end
         ra=answer{1}; dec=answer{2};
       end
