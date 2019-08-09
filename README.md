@@ -1,7 +1,7 @@
 # matlab-starbook
 Control an Avalon mount with StarGo from Matlab
 
-![Image of StarGo](https://github.com/farhi/matlab-stargo/blob/master/doc/stargo.jpg)
+![Image of StarGo](https://github.com/farhi/matlab-stargo/blob/master/@stargo/doc/stargo.jpg)
 
 Purpose
 -------
