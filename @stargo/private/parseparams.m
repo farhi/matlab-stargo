@@ -1,6 +1,6 @@
 function [p,self] = parseparams(self)
   % PARSEPARAMS interpret output and decode it.
-  recv = self.bufferRecv; p=[];
+  recv = self.private.bufferRecv; p=[];
   if isempty(recv), return; end
   % cut output from serial port into separate tokens
   recv = textscan(recv,'%s','Delimiter','# ','MultipleDelimsAsOne',true);
@@ -9,7 +9,7 @@ function [p,self] = parseparams(self)
   
   % check if we have a Z1 status string in received buffer
   toremove = [];
-  allSent = self.bufferSent; 
+  allSent = self.private.bufferSent; 
   % we search for a pattern in sent that matches the actual recieved string
   for indexR=1:numel(recv)
     if isempty(recv{indexR}), continue; end
@@ -41,13 +41,13 @@ function [p,self] = parseparams(self)
       end % if tok
     end % for indexS
   end % for indexR
-  toremove(toremove >  numel(self.bufferSent)) = [];
+  toremove(toremove >  numel(self.private.bufferSent)) = [];
   toremove(toremove <= 0) = [];
-  self.bufferSent(toremove) = [];
+  self.private.bufferSent(toremove) = [];
   if ~all(cellfun(@isempty, recv))
-    self.bufferRecv = sprintf('%s#', recv{:});
+    self.private.bufferRecv = sprintf('%s#', recv{:});
   else
-    self.bufferRecv = '';
+    self.private.bufferRecv = '';
   end
   self.state=orderfields(self.state);
 

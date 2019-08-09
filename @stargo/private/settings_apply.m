@@ -1,5 +1,5 @@
 function config = settings_apply(self, fig, config0)
-  % SETTINGS_APPLY apply settings in structure 'sets'
+  % SETTINGS_APPLY apply settings from dialogue
   
   try
     config = get(fig, 'UserData');

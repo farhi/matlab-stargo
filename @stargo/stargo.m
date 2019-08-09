@@ -37,19 +37,11 @@ classdef stargo < handle
     target_ra = [];
     target_dec= [];
     target_name = '';
-    ra        = [];
-    dec       = [];
+    ra        = []; % as a string for display
+    dec       = []; % as a string
   end % properties
   
-  properties(Access=private)
-    timer      = [];       % the current Timer object which sends a getstatus regularly
-    bufferSent = [];
-    bufferRecv = '';
-    start_time = datestr(now);
-    serial     = [];       % the serial object
-  end % properties
-  
-  properties (Constant=true,Access=private)
+  properties (Constant=true)
     catalogs       = getcatalogs;       % load catalogs at start
     % commands: field, input_cmd, output_fmt, description
     commands       = getcommands;
@@ -72,11 +64,10 @@ classdef stargo < handle
       if nargin
         sb.dev = dev;
       end
-      sb.start_time = now;
       
       % connect serial port
       try
-        sb.serial = serial(sb.dev); fopen(sb.serial);
+        sb.private.serial = serial(sb.dev); fopen(sb.private.serial);
       catch ME
         disp([ mfilename ': ERROR: failed to connect ' sb.dev ]);
         g = getports; 
@@ -85,8 +76,8 @@ classdef stargo < handle
         else disp(g); end
         return
       end
-      sb.serial.Terminator = '#';
-      sb.private.pulsems     = 0; % these fields are not safe (can be removed by mistake) but who cares ?
+      sb.private.serial.Terminator = '#';
+      sb.private.pulsems     = 0;
       sb.private.ra_move     = 0;
       sb.private.dec_move    = 0;
       sb.private.ra_deg      = 0;
@@ -113,10 +104,10 @@ classdef stargo < handle
       end
       
       % create the timer for auto update
-      sb.timer  = timer('TimerFcn', @(src,evnt)getstatus(sb), ...
+      sb.private.timer  = timer('TimerFcn', @(src,evnt)getstatus(sb), ...
           'Period', 1.0, 'ExecutionMode', 'fixedDelay', ...
           'Name', mfilename);
-      start(sb.timer);
+      start(sb.private.timer);
     end % stargo
     
     % I/O stuff ----------------------------------------------------------------
@@ -132,7 +123,7 @@ classdef stargo < handle
       %   WRITE(self, cmd, arg1, arg2, ...) same as above when a single command 
       %   requires additional arguments.
       
-      if ~isvalid(self.serial), disp('write: Invalid serial port'); return; end
+      if ~isvalid(self.private.serial), disp('write: Invalid serial port'); return; end
       cmd = strcmp(self, cmd);  % identify command, as a struct array
       cout = '';
       % send commands one by one
@@ -145,11 +136,11 @@ classdef stargo < handle
             
             disp( [ mfilename '.write: ' cmd(index).name ' "' c '"' ]);
           end
-          fprintf(self.serial, c); % SEND
+          fprintf(self.private.serial, c); % SEND
           cout = [ cout c ];
           % register expected output for interpretation.
           if ~isempty(cmd(index).recv) && ischar(cmd(index).recv)
-            self.bufferSent = [ self.bufferSent cmd(index) ]; 
+            self.private.bufferSent = [ self.private.bufferSent cmd(index) ]; 
           end
         else
           disp([ '[' datestr(now) '] WARNING: ' mfilename '.write: command ' cmd(index).send ...
@@ -164,23 +155,23 @@ classdef stargo < handle
       
       % this can be rather slow as there are pause calls.
       % registering output may help.
-      if ~isvalid(self.serial), disp('read: Invalid serial port'); return; end
+      if ~isvalid(self.private.serial), disp('read: Invalid serial port'); return; end
       
       % flush and get results back
       val = '';
       % we wait for output to be available (we know there will be something)
       t0 = clock;
-      while etime(clock, t0) < 0.5 && self.serial.BytesAvailable==0
+      while etime(clock, t0) < 0.5 && self.private.serial.BytesAvailable==0
         pause(0.1)
       end
       % we wait until there is nothing else to retrieve
       t0 = clock;
-      while etime(clock, t0) < 0.5 && self.serial.BytesAvailable
+      while etime(clock, t0) < 0.5 && self.private.serial.BytesAvailable
         val = [ val strtrim(flush(self)) ];
         pause(0.1)
       end
       % store output
-      self.bufferRecv = strtrim([ self.bufferRecv val ]);
+      self.private.bufferRecv = strtrim([ self.private.bufferRecv val ]);
       % interpret results
       [p, self] = parseparams(self);
       val = strtrim(strrep(val, '#',' '));
@@ -200,13 +191,13 @@ classdef stargo < handle
     function delete(self)
       % DELETE close connection
       h = update_interface(self);
-      if isa(self.timer,'timer') && isvalid(self.timer)
-        stop(self.timer);
-        delete(self.timer); 
+      if isa(self.private.timer,'timer') && isvalid(self.private.timer)
+        stop(self.private.timer);
+        delete(self.private.timer); 
       end
       stop(self);
-      if isvalid(self.serial)
-        fclose(self.serial);
+      if isvalid(self.private.serial)
+        fclose(self.private.serial);
       end
       close(h);
     end
@@ -253,8 +244,8 @@ classdef stargo < handle
       update_interface(self);
       
       % make sure our timer is running
-      if isa(self.timer,'timer') && isvalid(self.timer) && strcmp(self.timer.Running, 'off') 
-        start(self.timer); 
+      if isa(self.private.timer,'timer') && isvalid(self.private.timer) && strcmp(self.private.timer.Running, 'off') 
+        start(self.private.timer); 
       end
     end % getstatus
     
@@ -266,8 +257,8 @@ classdef stargo < handle
       % X0AAUX1ST X0FAUX2ST FQ(full_abort) X3E0(full_abort) 
       write(self,{'abort','full_abort','set_stargo_off'});
       disp([ '[' datestr(now) '] ' mfilename '.stop: ABORT.' ]);
-      self.bufferSent = [];
-      self.bufferRecv = '';
+      self.private.bufferSent = [];
+      self.private.bufferRecv = '';
       self.private.shift_ra  = [];
       self.private.shift_dec = [];
       notify(self, 'idle');
@@ -288,8 +279,8 @@ classdef stargo < handle
         'set_speed_guide','set_tracking_sidereal','set_tracking_on', ...
         'set_highprec', 'set_keypad_on', 'set_st4_on','set_system_speed_slew_fast'});
       
-      self.bufferSent = [];
-      self.bufferRecv = '';
+      self.private.bufferSent = [];
+      self.private.bufferRecv = '';
       pause(0.5);
       getstatus(self, 'full');
       disp([ '[' datestr(now) '] ' mfilename '.start: Mount Ready.' ]);
@@ -597,8 +588,9 @@ classdef stargo < handle
       end
       target_name = '';
       % from object name
-      if     ischar(ra) && strcmp(ra, 'home'), home(self); return;
-      elseif ischar(ra) && strcmp(ra, 'park'), park(self); return;
+      if     ischar(ra) && strcmpi(ra, 'home'), home(self); return;
+      elseif ischar(ra) && strcmpi(ra, 'park'), park(self); return;
+      elseif ischar(ra) && strcmpi(ra, 'stop'), stop(self); return;
       end
       if ischar(ra) && ~any(ra(1) == '0123456789+-')
         found = findobj(self, ra);
@@ -633,13 +625,16 @@ classdef stargo < handle
     function calibrate(self)
       % CALIBRATE measures the speed of the mount for all zoom levels
       z0 = zoom(self);
+      ra = self.ra_deg;
+      dec= self.dec_deg;
+      disp[ mfilename ': Calibrating... do not interrupt (takes 10 secs).' ]);
       stop(self);
       for z=1:4
         zoom(self, z);
         move(self, 'n'); move(self, 'e');
-        pause(1);
+        pause(1); % let time to reach nominal speed
         getstatus(self);
-        pause(1);
+        pause(1); % measure
         getstatus(self);
         % store current RA/DEC speed for current slew speed
         if self.private.ra_speed > 1e-3 && self.private.dec_speed > 1e-3
@@ -650,19 +645,27 @@ classdef stargo < handle
       end
       % restore current zoom level
       zoom(self, z0);
+      % move back to initial location
     end % calibrate
     
     function shift(self, delta_ra, delta_dec)
       % SHIFT moves the mount by a given amount on both axes. The target is kept.
       %   SHIFT(s, delta_ra, delta_dec) moves the mount by given values in [deg]
       %   The values are added to the current coordinates.
+      %
+      %   This operation should be avoided close to the Poles, nor to meridian.
       if nargin < 2, delta_ra  = []; end
       if nargin < 2, delta_dec = []; end
       if any(strcmp(delta_ra,{'stop','abort'})) stop(self); return; end
-      if ~isempty(self.private.shift_ra) || ~isempty(self.private.shift_dec)
-        disp([ mfilename ': WARNING: a shift is already on-going. Wait for its end or abort it' ]);
+      if all(self.private.ra_speeds==0) || all(self.private.dec_speeds==0)
+        disp([ mfilename ': WARNING: First start a "calibrate" operation.' ]);
         return
       end
+      if ~isempty(self.private.shift_ra) || ~isempty(self.private.shift_dec)
+        disp([ mfilename ': WARNING: a shift is already on-going. Wait for its end or abort it with "stop".' ]);
+        return
+      end
+      
       % determine shift target
       if isnumeric(delta_ra) && numel(delta_ra) == 1
         self.private.shift_ra = self.ra_deg + delta_ra;
@@ -674,10 +677,12 @@ classdef stargo < handle
       if ~isempty(self.private.shift_ra)
         self.private.shift_ra = max([ 0 self.private.shift_ra   ]);
         self.private.shift_ra = min([ self.private.shift_ra 360 ]);
+        self.private.shift_zoom = zoom(self);
       end
       if ~isempty(self.private.shift_dec)
         self.private.shift_dec= max([ -90 self.private.shift_dec]);
         self.private.shift_dec= min([ self.private.shift_dec 90 ]);
+        self.private.shift_zoom = zoom(self);
       end
       % the auto update will handle the move (calling update_shift)
     end % shift
