@@ -627,7 +627,7 @@ classdef stargo < handle
       z0 = zoom(self);
       ra = self.ra_deg;
       dec= self.dec_deg;
-      disp[ mfilename ': Calibrating... do not interrupt (takes 10 secs).' ]);
+      disp([ mfilename ': Calibrating... do not interrupt (takes 10 secs).' ]);
       stop(self);
       for z=1:4
         zoom(self, z);
@@ -642,6 +642,7 @@ classdef stargo < handle
           self.private.dec_speeds(z) = self.private.dec_speed;
         end
         stop(self);
+        disp([ mfilename ': Calibration done.' ]);
       end
       % restore current zoom level
       zoom(self, z0);
@@ -838,7 +839,165 @@ classdef stargo < handle
 end % classdef
 
 
+% ------------------------------------------------------------------------------
+% private (can not be moved into /private)
+% ------------------------------------------------------------------------------
 
+function catalogs = getcatalogs
+  % GETCATALOGS load catalogs for stars and DSO.
+
+  % stored here so that they are not loaded for further calls
+  persistent loaded_catalogs  
+  
+  if ~isempty(loaded_catalogs)
+    catalogs = loaded_catalogs; 
+    return
+  end
+  
+  % load catalogs: objects, stars
+  disp([ mfilename ': Welcome ! Loading Catalogs:' ]);
+  catalogs = load(mfilename);
+  
+  % display available catalogs
+  for f=fieldnames(catalogs)'
+    name = f{1};
+    if ~isempty(catalogs.(name))
+      num  = numel(catalogs.(name).RA);
+      if isfield(catalogs.(name), 'Description')
+        desc = catalogs.(name).Description;
+      else desc = ''; end
+      disp([ mfilename ': ' name ' with ' num2str(num) ' entries.' ]);
+      disp([ '  ' desc ])
+    end
+  end
+
+  loaded_catalogs = catalogs;
+end % getcatalogs
+
+function c = getcommands
+
+  % list of commands to be used with StarGo, derived from LX200 protocol.
+  commands = { ...                   
+    'get_alignment',                'GW',         '%c%c%1d', 'query Scope alignment status(mt,tracking,nb_alignments)';
+    'get_firmwaredate',             'GVD',        'd%s','query firmware date'; 
+    'get_firmware',                 'GVN',        '%f','query firmware version';
+    'get_ra',                       'GR',         '%d:%d:%d','query RA  (h:m:s)'; 
+    'get_dec',                      'GD',         '%d*%d:%d','query DEC (d:m:s)'; 
+    'get_keypad',                   'TTGFr',      'vr%1d','query Keypad status(0,1)';     
+    'get_manufacturer',             'GVP',        '%s','manufacturer';
+    'get_meridian_forced',          'TTGFd',      'vd%1d','query meridian flip forced(TF)';
+    'get_meridian',                 'TTGFs',      'vs%d','query meridian flip(TF)';  
+    'get_motors',                   'X34',        'm%1d%1d','query motors state(0:5==stop,tracking,accel,decel,lowspeed,highspeed)'; 
+    'get_park',                     'X38',        'p%s','query tracking state(0=unparked,1=homed,2=parked,A=slewing,B=slewing2park)';   
+    'get_precision',                'X05',        '%s','query precision, returns "U"';
+    'get_radec',                    'X590',       'RD%8d%8d','query RADEC(RA*1e6,DEC*1e5) in deg';
+    'get_sideofpier',               'X39',        'P%c','query pier side(X=unkown,E=east2east,W=east2west)';  
+    'get_site_latitude',            'Gt',         '%dt%d:%d','query Site Latitude';  
+    'get_site_longitude',           'Gg',         '%dg%d:%d','query Site Longitude';     
+    'get_slew',                     'MS',         '%d','query slewing state(0=slewing) and start move';     
+    'get_autoguiding_speed',        'X22',        '%db%d','query autoguiding speeds(ra,dec)';   
+    'get_system_speed_slew',        'TTGMX',      '%da%d','query slewing speed(xx=6,8,9,12,yy)';    
+    'get_st4',                      'TTGFh',      'vh%1d','query ST4 status(TF)';  
+    'get_torque',                   'TTGT',       't%3d','query motor torque (x=50-150 in %)';
+    'get_unkown_x1b',               'X1B',        'w%2d','query X1B, e.g. returns "w01"';
+    'get_motor_status',             'X3C',        ':Z1%1d%1d%1d','query motor status [motors=OFF,DEC,RA,all_ON;track=OFF,Moon,Sun,Star;speed=Guide,Center,Find,Max]';
+    'get_unkown_x46r',              'X46r',       'c%1d','query X46r, e.g. "c1"';
+    'set_altaz',                    'AA',         '',     'set to alt/az mode';
+    'set_autoguiding_speed_dec',    'X21%02d',    '',     'set auto guiding speed on DEC (xx for 0.xx %)';
+    'set_autoguiding_speed_ra',     'X20%02d',    '',     'set auto guiding speed on RA (xx for 0.xx %)';
+    'set_date',                     'SC %02d%02d%02d','','set local date(mm,dd,yy)(0)';
+    'set_dec',                      'Sd %+03d*%02d:%02d', '','set DEC(dd,mm,ss)';
+    'set_equatorial',               'AP',         '','set mount to equatorial mode';
+    'set_guiding_speed_dec',        'X21%2d',     '','set DEC speed(dd percent)';
+    'set_guiding_speed_ra',         'X20%2d',     '','set RA speed(dd percent)';
+    'set_highprec',                 'U',          '','switch to high precision';
+    'set_hemisphere_north',         'TTHS0',      '','set North hemisphere';
+    'set_hemisphere_south',         'TTHS1',      '','set South hemisphere';
+    'set_home_pos',                 'X31%02d%02d%02d','','sync home position';
+    'set_keypad_off',               'TTSFr',      '','disable keypad';
+    'set_keypad_on',                'TTRFr',      '','enable keypad';
+    'set_meridianflip_forced_off',  'TTRFd',      '','disable meridian flip forced';  
+    'set_meridianflip_forced_on',   'TTSFd',      '','enable meridian flip forced';     
+    'set_meridianflip_off',         'TTRFs',      '','disable meridian flip';     
+    'set_meridianflip_on' ,         'TTSFs',      '','enable meridian flip';    
+    'set_mount_gear_ratio',         'TTSM%1d',    '','set mount model (x=1-8 for M0,576,Linear,720,645,1440,Omega,B230)'; 
+    'set_park_pos',                 'X352',       '','sync park position (0)';
+    'set_polar_led',                'X07%1d',     '','set the polar LED level in 10% (x=0-9)';
+    'set_pulse_east',               'Mge%04d',    '','move east for (t msec)';
+    'set_pulse_north',              'Mgn%04d',    '','move north for (t msec)';
+    'set_pulse_south',              'Mgs%04d',    '','move south for (t msec)';
+    'set_pulse_west',               'Mgw%04d',    '','move west for (t msec)';
+    'set_ra',                       'Sr %02d:%02d:%02d', '','set RA(hh,mm,ss)';
+    'set_reverse_radec',            'X1A%1d%1d',  '','set RA/DEC reverse direction';
+    'set_sidereal_time',            'X32%02d%02d%02d','','set local sidereal time(hh,mm,ss)';
+    'set_site_latitude',            'St%+03d*%02d:%02d#Gt', '','set site latitude(dd,mm,ss)'; 
+    'set_site_longitude',           'Sg%+04d*%02d:%02d#Gg', '','set site longitude(dd,mm,ss)'; 
+    'set_speed_guide',              'RG',         '','set slew speed guide (1/4)';
+    'set_speed_center',             'RC',         '','set slew speed center (2/4)';     
+    'set_speed_find',               'RM',         '','set slew speed find (3/4)';     
+    'set_speed_max',                'RS',         '','set slew speed max (4/4)';     
+    'set_st4_off',                  'TTRFh',      '','disable ST4 port';
+    'set_st4_on',                   'TTSFh',      '','enable ST4 port';
+    'set_stargo_on',                'X3E1',       '','set stargo on';
+    'set_stargo_off',               'X3E0',       '','set stargo off';
+    'set_system_speed_center_2',    'X03007:0010','','set system center speed to 2';
+    'set_system_speed_center_3',    'X0300510010','','set system center speed to 3';
+    'set_system_speed_center_4',    'X03003=0010','','set system center speed to 4';
+    'set_system_speed_center_6',    'X0300280010','','set system center speed to 6 (default)';
+    'set_system_speed_center_8',    'X03001>0010','','set system center speed to 8';
+    'set_system_speed_center_10',   'X0300180010','','set system center speed to 10';
+    'set_system_speed_guide_10',    'X0300280031','','set system guide speed to 10';
+    'set_system_speed_guide_15',    'X0300280020','','set system guide speed to 15';
+    'set_system_speed_guide_20',    'X0300280018','','set system guide speed to 20';
+    'set_system_speed_guide_30',    'X0300280010','','set system guide speed to 30 (default)';
+    'set_system_speed_guide_50',    'X030028000','', 'set system guide speed to 50';
+    'set_system_speed_guide_75',    'X0300280006','','set system guide speed to 75';
+    'set_system_speed_guide_100',   'X0300280005','','set system guide speed to 100';
+    'set_system_speed_guide_150',   'X0300280003','','set system guide speed to 150';
+    'set_system_speed_slew_low',         'TTMX0606',   '','set system slew speed low (1/4)';     
+    'set_system_speed_slew_medium',      'TTMX0808',   '','set system slew speed medium (2/4)'; 
+    'set_system_speed_slew_fast',        'TTMX0909',   '','set system slew speed fast (3/4) (default)';
+    'set_system_speed_slew_fastest',     'TTMX1212',   '','set system slew speed max (4/4)';       
+    'set_time',                     'SL %02d:%02d:%02d', '0','set local time(hh,mm,ss)';
+    'set_tracking_lunar',           'X123#:TL',         '','set tracking lunar';
+    'set_tracking_none',            'TM',         '','set tracking none';
+    'set_tracking_off',             'X120',       '','disable tracking';     
+    'set_tracking_on',              'X122',       '','enable tracking';     
+    'set_tracking_rate_ra',         'X1E%04d',    '','set tracking rate on RA  (xxxx=1000+-500:500)';
+    'set_tracking_rate_dec',        'X1F%04d',    '','set tracking rate on DEC (xxxx=1000+-500:500)';
+    'set_tracking_sidereal',        'X123#:TQ',         '','set tracking sidereal';
+    'set_tracking_solar',           'X123#:TS',         '','set tracking solar';
+    'set_UTCoffset',                'SG %+03d',   '','set UTC offset(hh)';
+    'abort',                        'Q',          '','abort current move'; 
+    'full_abort',                   'FQ',         '','full abort/stop (switch off)';
+    'home',                         'X361',       '','send mount to home (pA)';
+    'park',                         'X362',       '','send mount to park (pB)';
+    'start_slew_east',              'Me',         '','start to move east';
+    'start_slew_north'              'Mn',         '','start to move north';     
+    'start_slew_south'              'Ms',         '','start to move south';   
+    'start_slew_west',              'Mw',         '','start to move west';
+    'stop_slew_east',               'Qe',         '','stop to move east';
+    'stop_slew_north',              'Qn',         '','stop to move north';
+    'stop_slew_south',              'Qs',         '','stop to move south';
+    'stop_slew_west',               'Qw',         '','stop to move west';
+    'sync',                         'CM',         '','sync (align), i.e. indicate we are on last target';
+    'unpark',                       'X370',       '','wake up from park (p0)';  
+    'get_localdate',                'GC',         '%d%c%d%c%d', 'invalid:query Local date(mm,dd,yy)';
+    'get_locattime',                'GL',         '%2d:%2d:%2d','invalid:query local time(hh,mm,ss)';
+    'get_tracking_freq',            'GT',         '%f','invalid:query tracking frequency';
+    'get_UTCoffset',                'GG',         '%f','invalid:query UTC offset';
+  };
+  c = [];
+  for index=1:size(commands,1)
+    this = commands(index,:);
+    f.name   = this{1};
+    f.send   = [ ':' this{2} '#' ];
+    f.recv   = this{3};
+    f.comment= this{4};
+    c = [ c f ];
+  end
+  
+end % getcommands
 
 
 
