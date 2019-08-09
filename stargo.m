@@ -31,6 +31,7 @@ classdef stargo < handle
     UserData  = [];
     
     state     = [];       % detailed controller state (raw)
+    private   = [];       % we put our stuff
     status    = 'INIT';
     verbose   = false;
     target_ra = [];
@@ -85,19 +86,19 @@ classdef stargo < handle
         return
       end
       sb.serial.Terminator = '#';
-      sb.state.pulsems     = 0; % these fields are not safe (can be removed by mistake) but who cares ?
-      sb.state.ra_move     = 0;
-      sb.state.dec_move    = 0;
-      sb.state.ra_deg      = 0;
-      sb.state.dec_deg     = 0;
-      sb.state.zoom        = 1; % current zoom in 1:4
-      sb.state.ra_speed    = 0; % current in deg/s
-      sb.state.dec_speed   = 0; % current in deg/s
-      sb.state.ra_speeds   = zeros(1,4); % current in deg/s
-      sb.state.dec_speeds  = zeros(1,4); % current in deg/s
-      sb.state.shift_ra    = [];
-      sb.state.shift_dec   = [];
-      sb.state.lastUpdate  = [];
+      sb.private.pulsems     = 0; % these fields are not safe (can be removed by mistake) but who cares ?
+      sb.private.ra_move     = 0;
+      sb.private.dec_move    = 0;
+      sb.private.ra_deg      = 0;
+      sb.private.dec_deg     = 0;
+      sb.private.zoom        = 1; % current zoom in 1:4
+      sb.private.ra_speed    = 0; % current in deg/s
+      sb.private.dec_speed   = 0; % current in deg/s
+      sb.private.ra_speeds   = zeros(1,4); % current in deg/s
+      sb.private.dec_speeds  = zeros(1,4); % current in deg/s
+      sb.private.shift_ra    = [];
+      sb.private.shift_dec   = [];
+      sb.private.lastUpdate  = [];
       
       start(sb); % make sure we start with a known configuration
       disp([ '[' datestr(now) '] ' mfilename ': ' sb.version ' connected to ' sb.dev ]);
@@ -119,38 +120,6 @@ classdef stargo < handle
     end % stargo
     
     % I/O stuff ----------------------------------------------------------------
-    
-    function out = strcmp(self, in)
-      % STRCMP identify commands within available ones.
-      %   STRCMP(self, CMD) searches for CMD in available commands. CMD can be
-      %   given as a single serial command. The return value is a structure.
-      %
-      %   STRCMP(self, { 'CMD1' 'CMD2' ... }) does the same with an array as input.
-      if isstruct(in) && isfield(in,'send'), out = in; return;
-      elseif isnumeric(in), out = self.commands(in); return;
-      elseif ~ischar(in) && ~iscellstr(in)
-        error([ '[' datestr(now) '] ERROR: ' mfilename '.strcmp: invalid input type ' class(in) ]);
-      end
-      in = cellstr(in);
-      out = [];
-      for index = 1:numel(in)
-        this_in = in{index};
-        if this_in(1) == ':', list = { self.commands.send };
-        else                  list = { self.commands.name }; end
-        tok = find(strcmpi(list, this_in));
-        if numel(tok) == 1
-          out = [ out self.commands(tok) ];
-        else
-          disp([ '[' datestr(now) '] WARNING: ' mfilename '.strcmp: can not find command ' this_in ' in list of available ones.' ]);
-          out1.name = 'custom command';
-          out1.send = this_in;
-          out1.recv = '';
-          out1.comment = '';
-          out = [ out out1 ];
-        end
-      end
-      
-    end % strcmp
     
     function cout = write(self, cmd, varargin)
       % WRITE sends a single command, does not wait for answer.
@@ -276,7 +245,7 @@ classdef stargo < handle
       update_status(self);
       
       % handle shift operation
-      if ~isempty(self.state.shift_ra) || ~isempty(self.state.shift_dec)
+      if ~isempty(self.private.shift_ra) || ~isempty(self.private.shift_dec)
         update_shift(self); % handle shift: start, test target values, change speed, test for done.
       end
       
@@ -299,8 +268,8 @@ classdef stargo < handle
       disp([ '[' datestr(now) '] ' mfilename '.stop: ABORT.' ]);
       self.bufferSent = [];
       self.bufferRecv = '';
-      self.state.shift_ra  = [];
-      self.state.shift_dec = [];
+      self.private.shift_ra  = [];
+      self.private.shift_dec = [];
       notify(self, 'idle');
       pause(0.5);
       getstatus(self, 'full');
@@ -447,11 +416,11 @@ classdef stargo < handle
     
     function ms=pulse(self, ms)
     % PULSE get/set pulse length for slow moves
-      if nargin < 2, ms = self.state.pulsems; 
+      if nargin < 2, ms = self.private.pulsems; 
       else 
         if ischar(ms), ms = str2double(ms); end
         if isfinite(ms)
-          self.state.pulsems = ms;
+          self.private.pulsems = ms;
         end
       end
     end % pulse
@@ -525,8 +494,8 @@ classdef stargo < handle
       %   ZOOM(s, level) sets the zoom level (1-4)
       levels={'guide','center','find','max'};
       current_level = nan;
-      if isfield(self.state, 'zoom') && isnumeric(self.state.zoom) 
-        current_level = self.state.zoom;
+      if isfield(self.private, 'zoom') && isnumeric(self.private.zoom) 
+        current_level = self.private.zoom;
       end
       if isfinite(current_level) && 1 <= current_level && current_level <= 4
         current_level_char = levels{current_level}; 
@@ -577,7 +546,7 @@ classdef stargo < handle
         if isempty(index), return; end
       end
       if strcmp(msec, 'pulse')
-        msec = self.state.pulsems;
+        msec = self.private.pulsems;
       end
       if nargin == 3 && msec > 0
         if msec > 9999, msec=9999; end
@@ -673,9 +642,9 @@ classdef stargo < handle
         pause(1);
         getstatus(self);
         % store current RA/DEC speed for current slew speed
-        if self.state.ra_speed > 1e-3 && self.state.dec_speed > 1e-3
-          self.state.ra_speeds(z)  = self.state.ra_speed;
-          self.state.dec_speeds(z) = self.state.dec_speed;
+        if self.private.ra_speed > 1e-3 && self.private.dec_speed > 1e-3
+          self.private.ra_speeds(z)  = self.private.ra_speed;
+          self.private.dec_speeds(z) = self.private.dec_speed;
         end
         stop(self);
       end
@@ -690,25 +659,25 @@ classdef stargo < handle
       if nargin < 2, delta_ra  = []; end
       if nargin < 2, delta_dec = []; end
       if any(strcmp(delta_ra,{'stop','abort'})) stop(self); return; end
-      if ~isempty(self.state.shift_ra) || ~isempty(self.state.shift_dec)
+      if ~isempty(self.private.shift_ra) || ~isempty(self.private.shift_dec)
         disp([ mfilename ': WARNING: a shift is already on-going. Wait for its end or abort it' ]);
         return
       end
       % determine shift target
       if isnumeric(delta_ra) && numel(delta_ra) == 1
-        self.state.shift_ra = self.ra_deg + delta_ra;
+        self.private.shift_ra = self.ra_deg + delta_ra;
       end
       if isnumeric(delta_dec) && numel(delta_dec) == 1
-        self.state.shift_dec = self.dec_deg + delta_dec;
+        self.private.shift_dec = self.dec_deg + delta_dec;
       end
       % bound target values: this avoids passing bounds which will bring issues
-      if ~isempty(self.state.shift_ra)
-        self.state.shift_ra = max([ 0 self.state.shift_ra   ]);
-        self.state.shift_ra = min([ self.state.shift_ra 360 ]);
+      if ~isempty(self.private.shift_ra)
+        self.private.shift_ra = max([ 0 self.private.shift_ra   ]);
+        self.private.shift_ra = min([ self.private.shift_ra 360 ]);
       end
-      if ~isempty(self.state.shift_dec)
-        self.state.shift_dec= max([ -90 self.state.shift_dec]);
-        self.state.shift_dec= min([ self.state.shift_dec 90 ]);
+      if ~isempty(self.private.shift_dec)
+        self.private.shift_dec= max([ -90 self.private.shift_dec]);
+        self.private.shift_dec= min([ self.private.shift_dec 90 ]);
       end
       % the auto update will handle the move (calling update_shift)
     end % shift
@@ -778,7 +747,7 @@ classdef stargo < handle
         url = sprintf([ 'http://www.sky-map.org/?ra=%f&de=%f&zoom=%d' ...
         '&show_grid=1&show_constellation_lines=1' ...
         '&show_constellation_boundaries=1&show_const_names=0&show_galaxies=1' ], ...
-        self.state.ra_deg/15, self.state.dec_deg, 9-self.state.zoom*2);
+        self.private.ra_deg/15, self.private.dec_deg, 9-self.private.zoom*2);
       end
       % open in system browser
       open_system_browser(url);
@@ -863,663 +832,9 @@ classdef stargo < handle
   
 end % classdef
 
-% ------------------------------------------------------------------------------
-% private functions
-% ------------------------------------------------------------------------------
 
-function update_status(self)
-  % UPDATE_STATUS transfer main controller status to readable fields
-  %   RA DEC stored as string for e.g. display in interfaces
-  
-  t0     = self.state.lastUpdate;
-  ra_deg = self.state.ra_deg;
-  dec_deg= self.state.dec_deg;
-  
-  if isfield(self.state, 'get_radec') && numel(self.state.get_radec) == 2
-    self.state.ra_deg  = double(self.state.get_radec(1))/1e6; % in [hours]
-    self.state.dec_deg = double(self.state.get_radec(2))/1e5; % in [deg]
-    [h1,m1,s1] = angle2hms(self.state.ra_deg,'deg');  % in deg
-    [h2,m2,s2] = angle2hms(abs(self.state.dec_deg),'deg');
-    self.state.ra_deg = self.state.ra_deg*15; % in [deg]
-    if self.state.get_radec(2) < 0, sig = '-'; else sig=''; end
-    self.ra  = sprintf('%d:%d:%.1f', h1,m1,s1);
-    self.dec = sprintf('%c%d°%d:%.1f', sig, h2,m2,s2);
-  elseif  isfield(self.state, 'get_ra') || isfield(self.state, 'get_dec')
-    if isfield(self.state, 'get_ra')
-      self.ra = sprintf('%d:%d:%.1f', self.state.get_ra(1), self.state.get_ra(2), self.state.get_ra(3));
-      self.state.ra_deg  = hms2angle(self.state.get_ra)*15;
-    end
-    if isfield(self.state, 'get_dec')
-      self.dec= sprintf('%d°%d:%.1f', self.state.get_dec); % the sign is lost here
-      self.state.dec_deg = hms2angle(self.state.get_dec);
-    end
-  end
-  
-  % compute speed using elapsed time
-  
-  self.state.lastUpdate= clock;
-  if ~isempty(t0) && etime(self.state.lastUpdate,t0) > 0
-    dt = etime(self.state.lastUpdate,t0);
-    self.state.ra_speed = abs(self.state.ra_deg - ra_deg)/dt;
-    self.state.dec_speed= abs(self.state.dec_deg- dec_deg)/dt;
-  end
-  
-  %   motor state and mount status: get_alignment, get_park
-  % 'get_alignment', 'GW', 'query Scope alignment status(mt,tracking,nb_alignments)';
-  %   isTracking: self.state.get_alignment{2} == 'T'
-  if ~isfield(self.state, 'get_alignment') || ~iscell(self.state.get_alignment) ...
-  || ~ischar(self.state.get_alignment{1})
-    disp([ '[' datestr(now) '] WARNING: ' mfilename '.getstatus: invalid get_alignment' ]);
-    self.state.get_alignment = [];
-  end
-  % 'get_motors',    'X34','query motors state(0:5==stop,tracking,accel,decel,lowspeed,highspeed)';
-  if isfield(self.state,'get_motors')
-    if numel(self.state.get_motors) >= 2 && isnumeric(self.state.get_motors)
-      self.state.ra_move = self.state.get_motors(1);
-      self.state.dec_move= self.state.get_motors(2);
-    else
-      disp([ '[' datestr(now) '] WARNING: ' mfilename '.getstatus: invalid get_motors' ]);
-      self.state.get_motors = [];
-    end
-    if any(self.state.get_motors > 1)
-      self.status = 'MOVING';
-    elseif any(self.state.get_motors == 1)
-      self.status = 'TRACKING';
-    elseif all(self.state.get_motors == 0)
-      self.status = 'STOPPED';
-    end
-  end
-  if ~isfield(self.state,'get_motors') || numel(self.state.get_motors) ~= 2
-    if isfield(self.state, 'get_motor_status') && numel(self.state.get_motor_status) >= 2
-      % [motors=OFF,DEC,RA,all_ON; track=OFF,Moon,Sun,Star; speed=Guide,Center,Find,Max]
-      if     self.state.get_motor_status(1) == 0, self.status = 'STOPPED';
-      elseif self.state.get_motor_status(1) > 0,  self.status = 'TRACKING';
-      end
-    end
-  end
-  if isfield(self.state, 'get_motor_status') && numel(self.state.get_motor_status) >= 3
-    self.state.zoom = self.state.get_motor_status(3)+1; % slew speed in 1:4
-  end
-  
-  % 'get_park',      'X38','query tracking state(0=unparked,1=homed,2=parked,A=slewing,B=slewing2park)';   
-  if isfield(self.state,'get_park')
-    switch self.state.get_park
-    case '1'
-      self.status = 'HOME';
-    case '2'
-      self.status = 'PARKED';
-    case 'A'
-      self.status = 'SLEWING';
-    case 'B'
-      self.status = 'PARKING';
-    end
-  end
-  % longitude/latitude
-  if isfield(self.state,'get_site_longitude')
-    self.longitude= hms2angle(double(self.state.get_site_longitude));
-  end
-  if isfield(self.state,'get_site_latitude')
-    self.latitude= hms2angle(double(self.state.get_site_latitude));
-  end
-end % update_status
 
-function update_shift(self)
-  % UPDATE_SHIFT handle shift operation
-  %   start, test target values, change speed, test for done
-  if isempty(self.state.shift_ra) && isempty(self.state.shift_dec), return; end
-  
-  % determine direction to go
-  if ~isempty(self.state.shift_ra)
-    if self.state.shift_ra     > self.state.ra_deg, ra_dir = 'e'; % RA+
-    elseif self.state.shift_ra < self.state.ra_deg, ra_dir = 'w'; % RA-
-    end
-    delta_ra = abs(self.state.ra_deg - self.state.shift_ra);
-  end
-  
-  if ~isempty(self.state.shift_dec)
-    if self.state.shift_dec     > self.state.dec_deg, dec_dir = 'n'; % DEC+
-    elseif self.state.shift_dec < self.state.dec_deg, dec_dir = 's'; % DEC-
-    end
-    delta_dec = abs(self.state.dec_deg - self.state.shift_dec);
-  end
-  
-  % determine if we are there within the accuracy (update timer) and current slew speed
-  if ~isempty(self.state.shift_ra) && self.state.ra_speed > 1e-2
-    ra_eta = delta_ra/self.state.ra_speed; % in [s]
-    if ra_eta < 1, move(self, [ ra_dir ' stop' ]); end
-  end
-  if ~isempty(self.state.shift_dec) && self.state.dec_speed > 1e-2
-    dec_eta = delta_dec/self.state.dec_speed; % in [s]
-    if dec_eta < 1, move(self, [ dec_dir ' stop' ]); end
-  end
-  
-  % determine the most appropriate speed for movement
-  
-end % update_shift
 
-function [p,self] = parseparams(self)
-  % PARSEPARAMS interpret output and decode it.
-  recv = self.bufferRecv; p=[];
-  if isempty(recv), return; end
-  % cut output from serial port into separate tokens
-  recv = textscan(recv,'%s','Delimiter','# ','MultipleDelimsAsOne',true);
-  recv = recv{1};
-  if isempty(recv), return; end
-  
-  % check if we have a Z1 status string in received buffer
-  toremove = [];
-  allSent = self.bufferSent; 
-  % we search for a pattern in sent that matches the actual recieved string
-  for indexR=1:numel(recv)
-    if isempty(recv{indexR}), continue; end
-    for indexS=1:numel(allSent)
-      sent = allSent(indexS); tok = [];
-      if any(indexS == toremove), continue; end
-      if isempty(sent.recv), continue; end
-      try
-        % look for an expected output 'sent' in the actual output 'recv'
-        [tok,pos] = textscan(recv{indexR}, sent.recv);
-      catch ME
-        continue; % pattern does not match received string. try an other one.
-      end
 
-      if ~isempty(tok) && ~any(cellfun(@isempty,tok))
-        if numel(tok) == 1
-          tok = tok{1};
-        end
-        if iscell(tok) && all(cellfun(@isnumeric, tok))
-          tok = cell2mat(tok);
-        elseif iscell(tok) && all(cellfun(@ischar, tok))
-          tok = char(tok);
-        end
-        self.state.(sent.name) = tok; % store in object 'state'
-        p.(sent.name)   = tok;
-        toremove(end+1) = indexS; % clear this request for search
-        recv{indexR}    = [];     % clear this received output as it was found
-        break; % go to next received item
-      end % if tok
-    end % for indexS
-  end % for indexR
-  toremove(toremove >  numel(self.bufferSent)) = [];
-  toremove(toremove <= 0) = [];
-  self.bufferSent(toremove) = [];
-  if ~all(cellfun(@isempty, recv))
-    self.bufferRecv = sprintf('%s#', recv{:});
-  else
-    self.bufferRecv = '';
-  end
-  self.state=orderfields(self.state);
 
-end % parseparams
 
-% ------------------------------------------------------------------------------
-
-function catalogs = getcatalogs
-  % GETCATALOGS load catalogs for stars and DSO.
-
-  % stored here so that they are not loaded for further calls
-  persistent loaded_catalogs  
-  
-  if ~isempty(loaded_catalogs)
-    catalogs = loaded_catalogs; 
-    return
-  end
-  
-  % load catalogs: objects, stars
-  disp([ mfilename ': Welcome ! Loading Catalogs:' ]);
-  catalogs = load(mfilename);
-  
-  % display available catalogs
-  for f=fieldnames(catalogs)'
-    name = f{1};
-    if ~isempty(catalogs.(name))
-      num  = numel(catalogs.(name).RA);
-      if isfield(catalogs.(name), 'Description')
-        desc = catalogs.(name).Description;
-      else desc = ''; end
-      disp([ mfilename ': ' name ' with ' num2str(num) ' entries.' ]);
-      disp([ '  ' desc ])
-    end
-  end
-
-  loaded_catalogs = catalogs;
-end % getcatalogs
-
-function c = getcommands
-
-  % list of commands to be used with StarGo, derived from LX200 protocol.
-  commands = { ...                   
-    'get_alignment',                'GW',         '%c%c%1d', 'query Scope alignment status(mt,tracking,nb_alignments)';
-    'get_firmwaredate',             'GVD',        'd%s','query firmware date'; 
-    'get_firmware',                 'GVN',        '%f','query firmware version';
-    'get_ra',                       'GR',         '%d:%d:%d','query RA  (h:m:s)'; 
-    'get_dec',                      'GD',         '%d*%d:%d','query DEC (d:m:s)'; 
-    'get_keypad',                   'TTGFr',      'vr%1d','query Keypad status(0,1)';     
-    'get_manufacturer',             'GVP',        '%s','manufacturer';
-    'get_meridian_forced',          'TTGFd',      'vd%1d','query meridian flip forced(TF)';
-    'get_meridian',                 'TTGFs',      'vs%d','query meridian flip(TF)';  
-    'get_motors',                   'X34',        'm%1d%1d','query motors state(0:5==stop,tracking,accel,decel,lowspeed,highspeed)'; 
-    'get_park',                     'X38',        'p%s','query tracking state(0=unparked,1=homed,2=parked,A=slewing,B=slewing2park)';   
-    'get_precision',                'X05',        '%s','query precision, returns "U"';
-    'get_radec',                    'X590',       'RD%8d%8d','query RADEC(RA*1e6,DEC*1e5) in deg';
-    'get_sideofpier',               'X39',        'P%c','query pier side(X=unkown,E=east2east,W=east2west)';  
-    'get_site_latitude',            'Gt',         '%dt%d:%d','query Site Latitude';  
-    'get_site_longitude',           'Gg',         '%dg%d:%d','query Site Longitude';     
-    'get_slew',                     'MS',         '%d','query slewing state(0=slewing) and start move';     
-    'get_autoguiding_speed',        'X22',        '%db%d','query autoguiding speeds(ra,dec)';   
-    'get_system_speed_slew',        'TTGMX',      '%da%d','query slewing speed(xx=6,8,9,12,yy)';    
-    'get_st4',                      'TTGFh',      'vh%1d','query ST4 status(TF)';  
-    'get_torque',                   'TTGT',       't%3d','query motor torque (x=50-150 in %)';
-    'get_unkown_x1b',               'X1B',        'w%2d','query X1B, e.g. returns "w01"';
-    'get_motor_status',             'X3C',        ':Z1%1d%1d%1d','query motor status [motors=OFF,DEC,RA,all_ON;track=OFF,Moon,Sun,Star;speed=Guide,Center,Find,Max]';
-    'get_unkown_x46r',              'X46r',       'c%1d','query X46r, e.g. "c1"';
-    'set_altaz',                    'AA',         '',     'set to alt/az mode';
-    'set_autoguiding_speed_dec',    'X21%02d',    '',     'set auto guiding speed on DEC (xx for 0.xx %)';
-    'set_autoguiding_speed_ra',     'X20%02d',    '',     'set auto guiding speed on RA (xx for 0.xx %)';
-    'set_date',                     'SC %02d%02d%02d','','set local date(mm,dd,yy)(0)';
-    'set_dec',                      'Sd %+03d*%02d:%02d', '','set DEC(dd,mm,ss)';
-    'set_equatorial',               'AP',         '','set mount to equatorial mode';
-    'set_guiding_speed_dec',        'X21%2d',     '','set DEC speed(dd percent)';
-    'set_guiding_speed_ra',         'X20%2d',     '','set RA speed(dd percent)';
-    'set_highprec',                 'U',          '','switch to high precision';
-    'set_hemisphere_north',         'TTHS0',      '','set North hemisphere';
-    'set_hemisphere_south',         'TTHS1',      '','set South hemisphere';
-    'set_home_pos',                 'X31%02d%02d%02d','','sync home position';
-    'set_keypad_off',               'TTSFr',      '','disable keypad';
-    'set_keypad_on',                'TTRFr',      '','enable keypad';
-    'set_meridianflip_forced_off',  'TTRFd',      '','disable meridian flip forced';  
-    'set_meridianflip_forced_on',   'TTSFd',      '','enable meridian flip forced';     
-    'set_meridianflip_off',         'TTRFs',      '','disable meridian flip';     
-    'set_meridianflip_on' ,         'TTSFs',      '','enable meridian flip';    
-    'set_mount_gear_ratio',         'TTSM%1d',    '','set mount model (x=1-8 for M0,576,Linear,720,645,1440,Omega,B230)'; 
-    'set_park_pos',                 'X352',       '','sync park position (0)';
-    'set_polar_led',                'X07%1d',     '','set the polar LED level in 10% (x=0-9)';
-    'set_pulse_east',               'Mge%04d',    '','move east for (t msec)';
-    'set_pulse_north',              'Mgn%04d',    '','move north for (t msec)';
-    'set_pulse_south',              'Mgs%04d',    '','move south for (t msec)';
-    'set_pulse_west',               'Mgw%04d',    '','move west for (t msec)';
-    'set_ra',                       'Sr %02d:%02d:%02d', '','set RA(hh,mm,ss)';
-    'set_reverse_radec',            'X1A%1d%1d',  '','set RA/DEC reverse direction';
-    'set_sidereal_time',            'X32%02d%02d%02d','','set local sidereal time(hh,mm,ss)';
-    'set_site_latitude',            'St%+03d*%02d:%02d#Gt', '','set site latitude(dd,mm,ss)'; 
-    'set_site_longitude',           'Sg%+04d*%02d:%02d#Gg', '','set site longitude(dd,mm,ss)'; 
-    'set_speed_guide',              'RG',         '','set slew speed guide (1/4)';
-    'set_speed_center',             'RC',         '','set slew speed center (2/4)';     
-    'set_speed_find',               'RM',         '','set slew speed find (3/4)';     
-    'set_speed_max',                'RS',         '','set slew speed max (4/4)';     
-    'set_st4_off',                  'TTRFh',      '','disable ST4 port';
-    'set_st4_on',                   'TTSFh',      '','enable ST4 port';
-    'set_stargo_on',                'X3E1',       '','set stargo on';
-    'set_stargo_off',               'X3E0',       '','set stargo off';
-    'set_system_speed_center_2',    'X03007:0010','','set system center speed to 2';
-    'set_system_speed_center_3',    'X0300510010','','set system center speed to 3';
-    'set_system_speed_center_4',    'X03003=0010','','set system center speed to 4';
-    'set_system_speed_center_6',    'X0300280010','','set system center speed to 6 (default)';
-    'set_system_speed_center_8',    'X03001>0010','','set system center speed to 8';
-    'set_system_speed_center_10',   'X0300180010','','set system center speed to 10';
-    'set_system_speed_guide_10',    'X0300280031','','set system guide speed to 10';
-    'set_system_speed_guide_15',    'X0300280020','','set system guide speed to 15';
-    'set_system_speed_guide_20',    'X0300280018','','set system guide speed to 20';
-    'set_system_speed_guide_30',    'X0300280010','','set system guide speed to 30 (default)';
-    'set_system_speed_guide_50',    'X030028000','', 'set system guide speed to 50';
-    'set_system_speed_guide_75',    'X0300280006','','set system guide speed to 75';
-    'set_system_speed_guide_100',   'X0300280005','','set system guide speed to 100';
-    'set_system_speed_guide_150',   'X0300280003','','set system guide speed to 150';
-    'set_system_speed_slew_low',         'TTMX0606',   '','set system slew speed low (1/4)';     
-    'set_system_speed_slew_medium',      'TTMX0808',   '','set system slew speed medium (2/4)'; 
-    'set_system_speed_slew_fast',        'TTMX0909',   '','set system slew speed fast (3/4) (default)';
-    'set_system_speed_slew_fastest',     'TTMX1212',   '','set system slew speed max (4/4)';       
-    'set_time',                     'SL %02d:%02d:%02d', '0','set local time(hh,mm,ss)';
-    'set_tracking_lunar',           'X123#:TL',         '','set tracking lunar';
-    'set_tracking_none',            'TM',         '','set tracking none';
-    'set_tracking_off',             'X120',       '','disable tracking';     
-    'set_tracking_on',              'X122',       '','enable tracking';     
-    'set_tracking_rate_ra',         'X1E%04d',    '','set tracking rate on RA  (xxxx=1000+-500:500)';
-    'set_tracking_rate_dec',        'X1F%04d',    '','set tracking rate on DEC (xxxx=1000+-500:500)';
-    'set_tracking_sidereal',        'X123#:TQ',         '','set tracking sidereal';
-    'set_tracking_solar',           'X123#:TS',         '','set tracking solar';
-    'set_UTCoffset',                'SG %+03d',   '','set UTC offset(hh)';
-    'abort',                        'Q',          '','abort current move'; 
-    'full_abort',                   'FQ',         '','full abort/stop (switch off)';
-    'home',                         'X361',       '','send mount to home (pA)';
-    'park',                         'X362',       '','send mount to park (pB)';
-    'start_slew_east',              'Me',         '','start to move east';
-    'start_slew_north'              'Mn',         '','start to move north';     
-    'start_slew_south'              'Ms',         '','start to move south';   
-    'start_slew_west',              'Mw',         '','start to move west';
-    'stop_slew_east',               'Qe',         '','stop to move east';
-    'stop_slew_north',              'Qn',         '','stop to move north';
-    'stop_slew_south',              'Qs',         '','stop to move south';
-    'stop_slew_west',               'Qw',         '','stop to move west';
-    'sync',                         'CM',         '','sync (align), i.e. indicate we are on last target';
-    'unpark',                       'X370',       '','wake up from park (p0)';  
-    'get_localdate',                'GC',         '%d%c%d%c%d', 'invalid:query Local date(mm,dd,yy)';
-    'get_locattime',                'GL',         '%2d:%2d:%2d','invalid:query local time(hh,mm,ss)';
-    'get_tracking_freq',            'GT',         '%f','invalid:query tracking frequency';
-    'get_UTCoffset',                'GG',         '%f','invalid:query UTC offset';
-  };
-  c = [];
-  for index=1:size(commands,1)
-    this = commands(index,:);
-    f.name   = this{1};
-    f.send   = [ ':' this{2} '#' ];
-    f.recv   = this{3};
-    f.comment= this{4};
-    c = [ c f ];
-  end
-  
-end
-
-function available = getports
-  % GETPORTS find available serial ports.
-  
-  % we use the error code returned by Matlab
-  ME = [];
-  try
-    s = serial('IMPOSSIBLE_PORT'); fopen(s);
-  catch ME
-    % nop
-  end
-  
-  l = getReport(ME);
-  available = findstr(l, 'Available ports');
-  if ~isempty(available)
-    l = textscan(l(available(1):end),'%s','Delimiter','\n\r');
-    available = l{1};
-  end
-  if iscell(available) available = available{1}; end
-  if isempty(available) 
-    available = 'ERROR: No available serial port. Check connection/reconnect.'; 
-  end
-end % getports
-
-function str = flush(self)
-  % FLUSH read the return values from device
-  if ~isvalid(self.serial), disp('flush: Invalid serial port'); return; end
-  com = self.serial;
-  str = '';
-  while com.BytesAvailable
-    str = [ str fscanf(com) ];
-  end
-end % flush
-
-function [LST, JD, GST] = getLocalSiderealTime(longitude, t0)
-  % getLocalSiderealTime compute LST
-  %   getLocalSiderealTime(longitude, [year month day hour minute seconds]) uses
-  %   specified date and time.
-  %
-  %   getLocalSiderealTime(longitude) uses current date and time (but does not 
-  %   correct for UTC offset).
-  if nargin < 1
-    longitude = 2;
-  end
-  if nargin <= 1
-    t0 = clock;
-  end
-  fprintf('Date                               %s\n', datestr(t0));
-  year=t0(1); month=t0(2);  day=t0(3); 
-  hour=t0(4);   min=t0(5);  sec=t0(6); 
-  UT = hour + min/60 + sec/3600;
-  J0 = 367*year - floor(7/4*(year + floor((month+9)/12))) ...
-      + floor(275*month/9) + day + 1721013.5;
-  JD = J0 + UT/24;              % Julian Day
-  fprintf('Julian day                         %6.4f [days]\n',JD);
-  JC = (J0 - 2451545.0)/36525;
-  GST0 = 100.4606184 + 36000.77004*JC + 0.000387933*JC^2 - 2.583e-8*JC^3; %[deg]
-  GST0 = mod(GST0, 360);  % GST0 range [0..360]
-  fprintf('Greenwich sidereal time at 0 hr UT %6.4f [deg]\n',GST0);
-  GST = GST0 + 360.98564724*UT/24;
-  GST = mod(GST, 360);  % GST range [0..360]
-  fprintf('Greenwich sidereal time at UT[h]   %6.4f [deg]\n',GST);
-  LST = GST + longitude;
-  LST = mod(LST, 360);  % LST range [0..360]
-  fprintf('Local sidereal time                %6.4f [deg]\n',LST);
-  [h,m,s] = angle2hms(LST);
-  fprintf('                                   %2d:%2d:%2d\n',h,m,s);
-end % getLocalSiderealTime
-
-function place = getplace
-  % could also use: https://api.ipdata.co/
-  % is network service available ?
-  ip = java.net.InetAddress.getByName('ip-api.com');
-  if ip.isReachable(1000)
-    ip = urlread('http://ip-api.com/json');
-    ip = parse_json(ip);  % into struct (private)
-    place = [ ip.lon ip.lat ];
-    disp([ mfilename ': You seem to be located near ' ip.city ' ' ip.country ' [long lat]=' mat2str(place) ' obtained from http://ip-api.com/json' ]);
-  else
-    place = [];
-  end
-end % end
-
-function [h,m,s] = angle2hms(ang,in)
-  % angle2hms convert angle from [deg] to hh:mm:ss
-  if nargin < 2, in='hours'; end
-  if strcmp(in, 'hours')
-    ang = ang/15;
-  end
-  h=fix(ang); m=fix((ang-h)*60); s=(ang-h-m/60)*3600;
-end % angle2hms
-
-function ang = hms2angle(h,m,s)
-  % hms2angle convert hh:mm:ss to an angle in [deg]
-  if nargin == 1 && numel(h) == 3
-    m = h(2); s=h(3); h=h(1);
-  end
-  ang = double(h) + double(m)/60 + double(s)/3600;
-end % hms2angle
-
-function str = repradec(str)
-  %repradec: replace string stuff and get it into num
-  str = lower(str);
-  for rep = {'h','m','s',':','°','deg','d','''','"','*','[',']'}
-    str = strrep(str, rep{1}, ' ');
-  end
-  str = str2num(str);
-end
-
-function [h,m,s] = convert2hms(in,hours)
-  h=[]; m=[]; s=[];
-  if nargin < 2, hours='hours'; end
-  if isempty(in), return; end
-  if ischar(in) % from HH:MM:SS
-    str = repradec(in);
-    if isnumeric(str) && all(isfinite(str))
-      in = str;
-    end
-  end
-  if isnumeric(in) 
-    if isscalar(in)
-      [h,m,s] = angle2hms(in,hours);
-    elseif numel(in) == 3
-      h=in(1); m=in(2); s=in(3);
-    end
-  end
-end % convert2hms
-
-function c = gotora(self, ra)
-  [h1,m1,s1] = convert2hms(ra,'hours'); c = '';
-  if ~isempty(h1)
-    c = write(self, 'set_ra',  h1,m1,round(s1));
-    self.target_ra = [h1 m1 s1];
-    pause(0.25); % make sure commands are received
-    % now we request execution of move: get_slew ":MS#"
-    write(self, 'get_slew');
-  elseif isempty(self.target_ra), self.target_ra=self.state.get_ra;
-  end
-end % gotora
-
-function c = gotodec(self, dec)
-  [h2,m2,s2] = convert2hms(dec,'deg'); c = '';
-  if ~isempty(h2)
-    c = write(self, 'set_dec', h2,m2,round(s2));
-    self.target_dec = [h2 m2 s2];
-    pause(0.25); % make sure commands are received
-    % now we request execution of move: get_slew ":MS#"
-    write(self, 'get_slew');
-    pause(0.25); % make sure commands are received
-  elseif isempty(self.target_dec), self.target_dec=self.state.get_dec;
-  end
-end % gotodec
-
-function config = settings_apply(self, fig, config0)
-  % SETTINGS_APPLY apply settings in structure 'sets'
-  
-  try
-    config = get(fig, 'UserData');
-  catch
-    config = [];
-  end
-  if isempty(config0) || ~isstruct(config0) || ~isstruct(config), return; end
-  % check for changes
-  for f=fieldnames(config)'
-    val  = config.(f{1});
-    val0 = config0.(f{1});
-    remove_me = false;
-    % remove type changed members
-    if ~strcmp(class(val),class(val0)), remove_me=true; 
-    % remove unset members
-    elseif isempty(val) || strcmp(val, 'unset'), remove_me=true; 
-    % remove unchanged members
-    elseif ischar(val) && ischar(val0) && strcmp(val, val0), remove_me=true;
-    elseif isequal(val, val0), remove_me=true; end
-    if remove_me
-      config = rmfield(config, f{1});
-    end
-  end
-  disp 'applying changes:'
-  config
-  % apply changes
-  for f=fieldnames(config)'
-    val = config.(f{1});
-    switch f{1}
-    case 'tracking'
-      tracking(self, strtok(config.tracking));
-    case 'polar_led'
-      config.polar_led = strtok(config.polar_led);
-      write(self, 'set_polar_led', str2double(config.polar_led(1)));
-    case 'meridianflip'
-      meridianflip(self, strtok(config.meridianflip));
-    case 'st4'
-      if config.st4, write(self, 'set_st4_on');
-      else           write(self, 'set_st4_off'); end
-    case 'keypad'
-      if config.keypad, write(self, 'set_keypad_on');
-      else           write(self, 'set_keypad_off'); end
-    case 'mode'
-      write(self, [ 'set_' lower(config.mode) ]);
-    case 'hemisphere'
-      write(self, [ 'set_hemisphere_' lower(config.hemisphere) ]);
-    case 'mount_gear_ratio'
-      config.mount_gear_ratio = strtok(config.mount_gear_ratio);
-      write(self, 'set_mount_gear_ratio', config.mount_gear_ratio(1));
-    case 'autoguiding_speed'
-      config.autoguiding_speed  = str2num(config.autoguiding_speed);
-      if numel(config.autoguiding_speed) == 2
-        write(self, 'set_autoguiding_speed_ra', config.autoguiding_speed(1));
-        write(self, 'set_autoguiding_speed_dec', config.autoguiding_speed(2));
-      end
-    case 'reverse_radec'
-      switch strtok(config.reverse_radec)
-      case 'normal'
-        config.reverse_radec = [ 0 0 ];
-      case 'RA'
-        config.reverse_radec = [ 1 0 ];
-      case 'DEC'
-        config.reverse_radec = [ 0 1 ];
-      case 'RA/DEC'
-        config.reverse_radec = [ 1 1 ];
-      end
-      write(self, 'set_reverse_radec', config.reverse_radec);
-    case 'system_speed_center'
-      write(self, [ 'set_system_speed_center_' strtok(config.system_speed_center) ]);
-    case 'system_speed_guide'
-      write(self, [ 'set_system_speed_guide_' strtok(config.system_speed_guide) ]);
-    case 'system_speed_slew'
-      config.system_speed_slew  = str2num(config.system_speed_slew);
-      if numel(config.system_speed_slew) == 2
-        write(self, [ 'set_system_speed_slew_' config.system_speed_slew ]);
-      end
-    case 'longitude'
-      config.longitude          = repradec(config.longitude);
-      if numel(config.longitude) == 3
-        write(self, 'set_site_longitude', config.longitude);
-      end
-    case 'latitude'
-      config.latitude           = repradec(config.latitude);
-      if numel(config.latitude) == 3
-        write(self, 'set_site_latitude', config.latitude);
-      end
-    otherwise
-      disp([ mfilename ': WARNING: settings: ignoring unkown ' f{1} ' parameter.' ]);
-    end % switch
-  end % for
-
-  % always sync date, time, daylight saving shift.
-  if ~isfield(config, 'UTCoffset')
-    config.UTCoffset = self.UTCoffset;
-  end
-  
-  config.UTCoffset          = str2double(config.UTCoffset);
-  t0=clock; 
-  write(self, 'set_date', t0(1:3));
-  write(self, 'set_time', t0(4:6));
-  % 'set_UTCoffset',                'SG %+03d',   '','set UTC offset(hh)';
-  write(self, 'set_UTCoffset', self.UTCoffset);
-  % display date/time settings
-  t0(4)=t0(4)-self.UTCoffset; % allows to compute properly the Julian Day from Stellarium
-  time(self, t0, 'home'); % sets LST
-  time(self, t0, 'time'); % sets time and date
-
-end % settings_apply
-
-function config=settings_dialogue(self)
-  % SETTINGS_DIALOGUE display a dialogue with mount settings and return a struct
-  % with changed parameters.
-  
-  % pop-up choices must start with the current one
-    config_meridian = {'auto','off','forced'};
-    index = strcmp(strtok(config_meridian), meridianflip(self));
-    config_meridian = config_meridian([ find(index) find(~index) ]);
-    
-    config_tracking = {'on','off','sidereal (stars)','lunar','solar'};
-    index = strcmp(strtok(config_tracking), tracking(self));
-    config_tracking = config_tracking([ find(index) find(~index) ]);
-    
-    config_slew_val = [ 6 8 9 12 ];
-    config_slew={'low (6)','medium (8)','fast (9,default)','fastest (12, only on 15-18 V)'}; % from get_system_speed_slew
-    if isfield(self.state,'get_system_speed_slew') && numel(self.state.get_system_speed_slew) == 2
-      index = config_slew_val == self.state.get_system_speed_slew(1);
-      config_slew = config_slew([ find(index) find(~index) ]);
-    end
-
-    % display dialogue in non-modal to allow background tasks
-    % update is done with CloseReqFcn
-    [~,fig,config] = settingsdlg( ...
-      'title',[ mfilename ': Avalon mount settings' ], ...
-      'Description',[ 'Please check/update the ' mfilename ...
-                      ' configuration.' ], ...
-      'WindowStyle','normal', ...
-      {'Longitude [HH MM SS]','longitude'}, num2str(self.state.get_site_longitude), ...
-      {'Latitude [DD MM SS]','latitude'}, num2str(self.state.get_site_latitude), ...
-      {'UTC offset (dayligh saving)','UTCoffset'}, self.UTCoffset, ...
-      {'Tracking','tracking'}, config_tracking, ...
-      {'Polar LED light level [in %]','polar_led'},{'0 (off)','10','20','30','40','50','60','70','80','90'}, ...
-      'separator','   ', ...
-      {'Meridian flip','meridianflip'}, config_meridian, ...
-      {'ST4 port connected','st4'}, logical(self.state.get_st4), ...
-      {'Keypad connected','keypad'}, logical(self.state.get_keypad), ...
-      {'Equatorial/Alt-Az mode','mode'}, {'unset','Equatorial','AltAz'}, ...
-      {'Hemisphere','hemisphere'}, {'unset','North','South'}, ...
-      'separator','Advanced settings', ...
-      {'Mount model','mount_gear_ratio'},{'unset','1 (M-zero)','2 (576)','3 (Linear)','4 (720)','5 (645)','6 (1440)','7 (Omega)','8 (B230)'}, ...
-      {'Auto guiding speed [RA DEC, in %, e.g. 30 stands for 0.30]','autoguiding_speed'}, num2str(self.state.get_autoguiding_speed), ...
-      {'Reverse RA/DEC', 'reverse_radec'}, {'unset','normal','RA reversed','DEC reversed', 'RA/DEC reversed'}, ...
-      {'System speed: center','system_speed_center'}, {'unset','2','3','4','6 (default)','8','10'}, ...
-      {'System speed: guide','system_speed_guide'},  {'unset','10','15','20','30 (default)','50','75','100','150'}, ...
-      {'System speed: slew', 'system_speed_slew'}, config_slew ...
-    );
-    % apply changed members when deleting settings window
-    set(fig, 'DeleteFcn', @(src,evnt)settings(self, fig, config));
-    
-  end % settings_dialogue
