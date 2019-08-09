@@ -85,14 +85,18 @@ classdef stargo < handle
         return
       end
       sb.serial.Terminator = '#';
-      sb.state.pulsems     = 0;
+      sb.state.pulsems     = 0; % these fields are not safe (can be removed by mistake) but who cares ?
       sb.state.ra_move     = 0;
       sb.state.dec_move    = 0;
       sb.state.ra_deg      = 0;
       sb.state.dec_deg     = 0;
-      sb.state.zoom        = 1;
-      sb.state.ra_speed    = 0; % in deg/s
-      sb.state.dec_speed   = 0; % in deg/s
+      sb.state.zoom        = 1; % current zoom in 1:4
+      sb.state.ra_speed    = 0; % current in deg/s
+      sb.state.dec_speed   = 0; % current in deg/s
+      sb.state.ra_speeds   = zeros(1,4); % current in deg/s
+      sb.state.dec_speeds  = zeros(1,4); % current in deg/s
+      sb.state.shift_ra    = [];
+      sb.state.shift_dec   = [];
       sb.state.lastUpdate  = [];
       
       start(sb); % make sure we start with a known configuration
@@ -255,14 +259,6 @@ classdef stargo < handle
       if nargin == 1, option = ''; end
       if isempty(option), option='short'; end
       
-      % get previous ra/dec
-      if isfield(self.state,'lastUpdate') && isnumeric(self.state.lastUpdate)
-        t0      = self.state.lastUpdate;
-        ra_deg  = self.state.ra_deg;
-        dec_deg = self.state.dec_deg;
-      else t0 = []; ra_deg=0; dec_deg=0;
-      end
-      
       switch option
       case {'long','full','all'}
         list = { 'get_radec', 'get_motors', 'get_site_latitude', 'get_site_longitude', ...
@@ -276,95 +272,17 @@ classdef stargo < handle
       val = queue(self, list);
       notify(self,'updated');
       
-      % transfer main controller status
-      %   RA DEC stored as string for e.g. display in interfaces
-      if isfield(self.state, 'get_radec') && numel(self.state.get_radec) == 2
-        self.state.ra_deg  = double(self.state.get_radec(1))/1e6; % in [hours]
-        self.state.dec_deg = double(self.state.get_radec(2))/1e5; % in [deg]
-        [h1,m1,s1] = angle2hms(self.state.ra_deg,'deg');  % in deg
-        [h2,m2,s2] = angle2hms(abs(self.state.dec_deg),'deg');
-        self.state.ra_deg = self.state.ra_deg*15; % in [deg]
-        if self.state.get_radec(2) < 0, sig = '-'; else sig=''; end
-        self.ra  = sprintf('%d:%d:%.1f', h1,m1,s1);
-        self.dec = sprintf('%c%d°%d:%.1f', sig, h2,m2,s2);
-      elseif  isfield(self.state, 'get_ra') || isfield(self.state, 'get_dec')
-        if isfield(self.state, 'get_ra')
-          self.ra = sprintf('%d:%d:%.1f', self.state.get_ra(1), self.state.get_ra(2), self.state.get_ra(3));
-          self.state.ra_deg  = hms2angle(self.state.get_ra)*15;
-        end
-        if isfield(self.state, 'get_dec')
-          self.dec= sprintf('%d°%d:%.1f', self.state.get_dec); % the sign is lost here
-          self.state.dec_deg = hms2angle(self.state.get_dec);
-        end
-      end
+      % send result to 'state' and other object fields
+      update_status(self);
       
-      % compute speed using elapsed time
-      self.state.lastUpdate= clock;
-      if ~isempty(t0) && etime(self.state.lastUpdate,t0) > 0
-        dt = etime(self.state.lastUpdate,t0);
-        self.state.ra_speed = abs(self.state.ra_deg - ra_deg)/dt;
-        self.state.dec_speed= abs(self.state.dec_deg- dec_deg)/dt;
-      end
-      
-      %   motor state and mount status: get_alignment, get_park
-      % 'get_alignment', 'GW', 'query Scope alignment status(mt,tracking,nb_alignments)';
-      %   isTracking: self.state.get_alignment{2} == 'T'
-      if ~isfield(self.state, 'get_alignment') || ~iscell(self.state.get_alignment) ...
-      || ~ischar(self.state.get_alignment{1})
-        disp([ '[' datestr(now) '] WARNING: ' mfilename '.getstatus: invalid get_alignment' ]);
-        self.state.get_alignment = [];
-      end
-      % 'get_motors',    'X34','query motors state(0:5==stop,tracking,accel,decel,lowspeed,highspeed)';
-      if isfield(self.state,'get_motors')
-        if numel(self.state.get_motors) >= 2 && isnumeric(self.state.get_motors)
-          self.state.ra_move = self.state.get_motors(1);
-          self.state.dec_move= self.state.get_motors(2);
-        else
-          disp([ '[' datestr(now) '] WARNING: ' mfilename '.getstatus: invalid get_motors' ]);
-          self.state.get_motors = [];
-        end
-        if any(self.state.get_motors > 1)
-          self.status = 'MOVING';
-        elseif any(self.state.get_motors == 1)
-          self.status = 'TRACKING';
-        elseif all(self.state.get_motors == 0)
-          self.status = 'STOPPED';
-        end
-      end
-      if ~isfield(self.state,'get_motors') || numel(self.state.get_motors) ~= 2
-        if isfield(self.state, 'get_motor_status') && numel(self.state.get_motor_status) >= 2
-          % [motors=OFF,DEC,RA,all_ON; track=OFF,Moon,Sun,Star; speed=Guide,Center,Find,Max]
-          if     self.state.get_motor_status(1) == 0, self.status = 'STOPPED';
-          elseif self.state.get_motor_status(1) > 0,  self.status = 'TRACKING';
-          end
-        end
-      end
-      if isfield(self.state, 'get_motor_status') && numel(self.state.get_motor_status) >= 3
-        self.state.zoom = self.state.get_motor_status(3)+1; % slew speed in 1:4
-      end
-      % 'get_park',      'X38','query tracking state(0=unparked,1=homed,2=parked,A=slewing,B=slewing2park)';   
-      if isfield(self.state,'get_park')
-        switch self.state.get_park
-        case '1'
-          self.status = 'HOME';
-        case '2'
-          self.status = 'PARKED';
-        case 'A'
-          self.status = 'SLEWING';
-        case 'B'
-          self.status = 'PARKING';
-        end
-      end
-      % longitude/latitude
-      if isfield(self.state,'get_site_longitude')
-        self.longitude= hms2angle(double(self.state.get_site_longitude));
-      end
-      if isfield(self.state,'get_site_latitude')
-        self.latitude= hms2angle(double(self.state.get_site_latitude));
+      % handle shift operation
+      if ~isempty(self.state.shift_ra) || ~isempty(self.state.shift_dec)
+        update_shift(self); % handle shift: start, test target values, change speed, test for done.
       end
       
       % request update of GUI
       update_interface(self);
+      
       % make sure our timer is running
       if isa(self.timer,'timer') && isvalid(self.timer) && strcmp(self.timer.Running, 'off') 
         start(self.timer); 
@@ -381,6 +299,8 @@ classdef stargo < handle
       disp([ '[' datestr(now) '] ' mfilename '.stop: ABORT.' ]);
       self.bufferSent = [];
       self.bufferRecv = '';
+      self.state.shift_ra  = [];
+      self.state.shift_dec = [];
       notify(self, 'idle');
       pause(0.5);
       getstatus(self, 'full');
@@ -638,6 +558,8 @@ classdef stargo < handle
 
     end % zoom
     
+    % MOVES --------------------------------------------------------------------
+    
     function move(self, nsew, msec)
       % MOVE slew the mount in N/S/E/W directions
       %   MOVE(s, 'dir') moves the mount in given direction. The direction can be
@@ -674,14 +596,15 @@ classdef stargo < handle
     
     function goto(self, ra, dec)
       % GOTO send the mount to given RA/DEC coordinates.
-      %   GOTO(sb, ra,dec) moves mount to given RA,DEC coordinates in [deg].
-      %   When any or RA or DEC is empty, the other is positioned.
+      %   GOTO(s, ra,dec) moves mount to given RA,DEC coordinates in [deg].
+      %   When any of RA or DEC is empty, the other is positioned.
+      %   GOTO can only be used after a HOME('set') and/or SYNC.
       %
-      %   GOTO(sb, [H M S], [d m s]) same as above for HH:MM:SS and dd°mm:ss
+      %   GOTO(s, [H M S], [d m s]) same as above for HH:MM:SS and dd°mm:ss
       %
-      %   GOTO(sb, 'hh:mm:ss','dd°mm:ss') same as above with explicit strings
+      %   GOTO(s, 'hh:mm:ss','dd°mm:ss') same as above with explicit strings
       %
-      %   GOTO(sb, object_name) searches for object name and moves to it
+      %   GOTO(s, object_name) searches for object name and moves to it
       %
       % When RA and DEC are not given, a dialogue box is shown.
       if nargin < 3, dec = []; end
@@ -728,8 +651,67 @@ classdef stargo < handle
       if ~isempty(h1) || ~isempty(h2)
         getstatus(self); % also flush serial out buffer
         notify(self,'gotoStart');
+        disp([ mfilename ': initiating GOTO to ' self.target_name ]);
       end
     end % goto
+    
+    function gotoradec(self, varargin)
+      % GOTORADEC send the mount to given RA/DEC coordinates.
+      %   This is equivalent to GOTO
+      goto(self, varargin{:});
+    end % gotoradec
+    
+    function calibrate(self)
+      % CALIBRATE measures the speed of the mount for all zoom levels
+      z0 = zoom(self);
+      stop(self);
+      for z=1:4
+        zoom(self, z);
+        move(self, 'n'); move(self, 'e');
+        pause(1);
+        getstatus(self);
+        pause(1);
+        getstatus(self);
+        % store current RA/DEC speed for current slew speed
+        if self.state.ra_speed > 1e-3 && self.state.dec_speed > 1e-3
+          self.state.ra_speeds(z)  = self.state.ra_speed;
+          self.state.dec_speeds(z) = self.state.dec_speed;
+        end
+        stop(self);
+      end
+      % restore current zoom level
+      zoom(self, z0);
+    end % calibrate
+    
+    function shift(self, delta_ra, delta_dec)
+      % SHIFT moves the mount by a given amount on both axes. The target is kept.
+      %   SHIFT(s, delta_ra, delta_dec) moves the mount by given values in [deg]
+      %   The values are added to the current coordinates.
+      if nargin < 2, delta_ra  = []; end
+      if nargin < 2, delta_dec = []; end
+      if any(strcmp(delta_ra,{'stop','abort'})) stop(self); return; end
+      if ~isempty(self.state.shift_ra) || ~isempty(self.state.shift_dec)
+        disp([ mfilename ': WARNING: a shift is already on-going. Wait for its end or abort it' ]);
+        return
+      end
+      % determine shift target
+      if isnumeric(delta_ra) && numel(delta_ra) == 1
+        self.state.shift_ra = self.ra_deg + delta_ra;
+      end
+      if isnumeric(delta_dec) && numel(delta_dec) == 1
+        self.state.shift_dec = self.dec_deg + delta_dec;
+      end
+      % bound target values: this avoids passing bounds which will bring issues
+      if ~isempty(self.state.shift_ra)
+        self.state.shift_ra = max([ 0 self.state.shift_ra   ]);
+        self.state.shift_ra = min([ self.state.shift_ra 360 ]);
+      end
+      if ~isempty(self.state.shift_dec)
+        self.state.shift_dec= max([ -90 self.state.shift_dec]);
+        self.state.shift_dec= min([ self.state.shift_dec 90 ]);
+      end
+      % the auto update will handle the move (calling update_shift)
+    end % shift
     
     % GUI and output commands --------------------------------------------------
     
@@ -885,6 +867,135 @@ end % classdef
 % private functions
 % ------------------------------------------------------------------------------
 
+function update_status(self)
+  % UPDATE_STATUS transfer main controller status to readable fields
+  %   RA DEC stored as string for e.g. display in interfaces
+  
+  t0     = self.state.lastUpdate;
+  ra_deg = self.state.ra_deg;
+  dec_deg= self.state.dec_deg;
+  
+  if isfield(self.state, 'get_radec') && numel(self.state.get_radec) == 2
+    self.state.ra_deg  = double(self.state.get_radec(1))/1e6; % in [hours]
+    self.state.dec_deg = double(self.state.get_radec(2))/1e5; % in [deg]
+    [h1,m1,s1] = angle2hms(self.state.ra_deg,'deg');  % in deg
+    [h2,m2,s2] = angle2hms(abs(self.state.dec_deg),'deg');
+    self.state.ra_deg = self.state.ra_deg*15; % in [deg]
+    if self.state.get_radec(2) < 0, sig = '-'; else sig=''; end
+    self.ra  = sprintf('%d:%d:%.1f', h1,m1,s1);
+    self.dec = sprintf('%c%d°%d:%.1f', sig, h2,m2,s2);
+  elseif  isfield(self.state, 'get_ra') || isfield(self.state, 'get_dec')
+    if isfield(self.state, 'get_ra')
+      self.ra = sprintf('%d:%d:%.1f', self.state.get_ra(1), self.state.get_ra(2), self.state.get_ra(3));
+      self.state.ra_deg  = hms2angle(self.state.get_ra)*15;
+    end
+    if isfield(self.state, 'get_dec')
+      self.dec= sprintf('%d°%d:%.1f', self.state.get_dec); % the sign is lost here
+      self.state.dec_deg = hms2angle(self.state.get_dec);
+    end
+  end
+  
+  % compute speed using elapsed time
+  
+  self.state.lastUpdate= clock;
+  if ~isempty(t0) && etime(self.state.lastUpdate,t0) > 0
+    dt = etime(self.state.lastUpdate,t0);
+    self.state.ra_speed = abs(self.state.ra_deg - ra_deg)/dt;
+    self.state.dec_speed= abs(self.state.dec_deg- dec_deg)/dt;
+  end
+  
+  %   motor state and mount status: get_alignment, get_park
+  % 'get_alignment', 'GW', 'query Scope alignment status(mt,tracking,nb_alignments)';
+  %   isTracking: self.state.get_alignment{2} == 'T'
+  if ~isfield(self.state, 'get_alignment') || ~iscell(self.state.get_alignment) ...
+  || ~ischar(self.state.get_alignment{1})
+    disp([ '[' datestr(now) '] WARNING: ' mfilename '.getstatus: invalid get_alignment' ]);
+    self.state.get_alignment = [];
+  end
+  % 'get_motors',    'X34','query motors state(0:5==stop,tracking,accel,decel,lowspeed,highspeed)';
+  if isfield(self.state,'get_motors')
+    if numel(self.state.get_motors) >= 2 && isnumeric(self.state.get_motors)
+      self.state.ra_move = self.state.get_motors(1);
+      self.state.dec_move= self.state.get_motors(2);
+    else
+      disp([ '[' datestr(now) '] WARNING: ' mfilename '.getstatus: invalid get_motors' ]);
+      self.state.get_motors = [];
+    end
+    if any(self.state.get_motors > 1)
+      self.status = 'MOVING';
+    elseif any(self.state.get_motors == 1)
+      self.status = 'TRACKING';
+    elseif all(self.state.get_motors == 0)
+      self.status = 'STOPPED';
+    end
+  end
+  if ~isfield(self.state,'get_motors') || numel(self.state.get_motors) ~= 2
+    if isfield(self.state, 'get_motor_status') && numel(self.state.get_motor_status) >= 2
+      % [motors=OFF,DEC,RA,all_ON; track=OFF,Moon,Sun,Star; speed=Guide,Center,Find,Max]
+      if     self.state.get_motor_status(1) == 0, self.status = 'STOPPED';
+      elseif self.state.get_motor_status(1) > 0,  self.status = 'TRACKING';
+      end
+    end
+  end
+  if isfield(self.state, 'get_motor_status') && numel(self.state.get_motor_status) >= 3
+    self.state.zoom = self.state.get_motor_status(3)+1; % slew speed in 1:4
+  end
+  
+  % 'get_park',      'X38','query tracking state(0=unparked,1=homed,2=parked,A=slewing,B=slewing2park)';   
+  if isfield(self.state,'get_park')
+    switch self.state.get_park
+    case '1'
+      self.status = 'HOME';
+    case '2'
+      self.status = 'PARKED';
+    case 'A'
+      self.status = 'SLEWING';
+    case 'B'
+      self.status = 'PARKING';
+    end
+  end
+  % longitude/latitude
+  if isfield(self.state,'get_site_longitude')
+    self.longitude= hms2angle(double(self.state.get_site_longitude));
+  end
+  if isfield(self.state,'get_site_latitude')
+    self.latitude= hms2angle(double(self.state.get_site_latitude));
+  end
+end % update_status
+
+function update_shift(self)
+  % UPDATE_SHIFT handle shift operation
+  %   start, test target values, change speed, test for done
+  if isempty(self.state.shift_ra) && isempty(self.state.shift_dec), return; end
+  
+  % determine direction to go
+  if ~isempty(self.state.shift_ra)
+    if self.state.shift_ra     > self.state.ra_deg, ra_dir = 'e'; % RA+
+    elseif self.state.shift_ra < self.state.ra_deg, ra_dir = 'w'; % RA-
+    end
+    delta_ra = abs(self.state.ra_deg - self.state.shift_ra);
+  end
+  
+  if ~isempty(self.state.shift_dec)
+    if self.state.shift_dec     > self.state.dec_deg, dec_dir = 'n'; % DEC+
+    elseif self.state.shift_dec < self.state.dec_deg, dec_dir = 's'; % DEC-
+    end
+    delta_dec = abs(self.state.dec_deg - self.state.shift_dec);
+  end
+  
+  % determine if we are there within the accuracy (update timer) and current slew speed
+  if ~isempty(self.state.shift_ra) && self.state.ra_speed > 1e-2
+    ra_eta = delta_ra/self.state.ra_speed; % in [s]
+    if ra_eta < 1, move(self, [ ra_dir ' stop' ]); end
+  end
+  if ~isempty(self.state.shift_dec) && self.state.dec_speed > 1e-2
+    dec_eta = delta_dec/self.state.dec_speed; % in [s]
+    if dec_eta < 1, move(self, [ dec_dir ' stop' ]); end
+  end
+  
+  % determine the most appropriate speed for movement
+  
+end % update_shift
 
 function [p,self] = parseparams(self)
   % PARSEPARAMS interpret output and decode it.
@@ -938,26 +1049,10 @@ function [p,self] = parseparams(self)
     self.bufferRecv = '';
   end
   self.state=orderfields(self.state);
-  % typical state upon getstatus:
-  %            get_manufacturer: 'Avalon'
-  %           get_firmware: 56.6000
-  %       get_firmwaredate: 'd01122017'
-  %              get_radec: [32463 1]
-  %             get_motors: [1 0]
-  %      get_site_latitude: [48 52 0]
-  %     get_site_longitude: [2 20 0]
-  %                get_st4: 1
-  %          get_alignment: {'P'  'T'  [0]}
-  %             get_keypad: 0
-  %           get_meridian: 0
-  %               get_park: '0'
-  %  get_system_speed_slew: [8 8]
-  %      get_autoguiding_speed: [30 30]
-  %         get_sideofpier: 'X'
-  %                 get_ra: [0 1 57]
-  %                get_dec: [0 0 0]
-  %    get_meridian_forced: 0
+
 end % parseparams
+
+% ------------------------------------------------------------------------------
 
 function catalogs = getcatalogs
   % GETCATALOGS load catalogs for stars and DSO.
@@ -1427,4 +1522,4 @@ function config=settings_dialogue(self)
     % apply changed members when deleting settings window
     set(fig, 'DeleteFcn', @(src,evnt)settings(self, fig, config));
     
-end % settings_dialogue
+  end % settings_dialogue
