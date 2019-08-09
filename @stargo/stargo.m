@@ -124,7 +124,7 @@ classdef stargo < handle
       %   requires additional arguments.
       
       if ~isvalid(self.private.serial), disp('write: Invalid serial port'); return; end
-      cmd = strcmp(self, cmd);  % identify command, as a struct array
+      cmd = private_strcmp(self, cmd);  % identify command, as a struct array
       cout = '';
       % send commands one by one
       for index=1:numel(cmd)
@@ -310,7 +310,7 @@ classdef stargo < handle
       case {'time','date'}
         cmd = 'set_time';
       end
-      if strcmp(t0, 'now')
+      if strcmpi(t0, 'now')
         % using UTCoffset allows to compute properly the Julian Day from Stellarium
         fprintf('Date (local)                       %s\n', datestr(t0));
         t0 = clock; t0(4) = t0(4) - self.UTCoffset;
@@ -345,12 +345,12 @@ classdef stargo < handle
       % park: X362 
       % unpark: X370 X32%02d%02d%02d X122 TQ
       if nargin < 2, option = 'park'; end
-      if     strcmp(option, 'set'), option = 'set_park_pos';
-      elseif strcmp(option, 'get'), option = 'get_park'; end
+      if     strcmpi(option, 'set'), option = 'set_park_pos';
+      elseif strcmpi(option, 'get'), option = 'get_park'; end
       ret = queue(self, option);
-      if strcmp(option,'park')
-        if ~strcmp(self.status, 'PARKED') notify(self, 'moving'); end
-      elseif strcmp(option,'unpark')
+      if strcmpi(option,'park')
+        if ~strcmpi(self.status, 'PARKED') notify(self, 'moving'); end
+      elseif strcmpi(option,'unpark')
         time(self, 'now','park');
         tracking(self, 'sidereal');
       end
@@ -375,14 +375,14 @@ classdef stargo < handle
       % set/sync home: set_site_longitude set_site_latitude X31%02d%02d%02d(set_home_pos) X351
       % goto home: X361(home) X120(set_tracking_off) X32%02d%02d%02d
       if nargin < 2, option = 'home'; end
-      if     strcmp(option, 'set'), option = 'set_home_pos';
-      elseif strcmp(option, 'get'), option = 'get_park'; end
+      if     strcmpi(option, 'set'), option = 'set_home_pos';
+      elseif strcmpi(option, 'get'), option = 'get_park'; end
       if strcmp(option, 'set_home_pos')
         ret = time(self, 'now', 'home');
         ret = [ ret queue(self, ':X351') ]; 
       else
-        if strcmp(option,'home')
-          if ~strcmp(self.status, 'HOME') notify(self, 'moving'); end
+        if strcmpi(option,'home')
+          if ~strcmpi(self.status, 'HOME') notify(self, 'moving'); end
         end
         ret = queue(self, option);
       end
@@ -498,12 +498,12 @@ classdef stargo < handle
       end
       if nargin < 2
         return
-      elseif strcmp(level, 'in')
+      elseif strcmpi(level, 'in')
         level = current_level-1; % slower speed
-      elseif strcmp(level, 'out')
+      elseif strcmpi(level, 'out')
         level = current_level+1; % faster
       elseif ischar(level)
-        level=find(strcmp(level, levels));
+        level=find(strcmpi(level, levels));
       end
       if ~isnumeric(level) || isempty(level), return; end
       if     level < 1, level=1;
@@ -531,12 +531,12 @@ classdef stargo < handle
       %   in [msec].
       if nargin < 3, msec = 0; end
       if nargin > 1
-        if strcmp(lower(nsew),'stop') stop(self); return; end
+        if strcmpi(lower(nsew),'stop') stop(self); return; end
         index= find(lower(nsew(1)) == 'nsew');
         dirs = {'north','south','east','west'};
         if isempty(index), return; end
       end
-      if strcmp(msec, 'pulse')
+      if strcmpi(msec, 'pulse')
         msec = self.private.pulsems;
       end
       if nargin == 3 && msec > 0
@@ -656,7 +656,7 @@ classdef stargo < handle
       %   This operation should be avoided close to the Poles, nor to meridian.
       if nargin < 2, delta_ra  = []; end
       if nargin < 2, delta_dec = []; end
-      if any(strcmp(delta_ra,{'stop','abort'})) stop(self); return; end
+      if any(strcmpi(delta_ra,{'stop','abort'})) stop(self); return; end
       if all(self.private.ra_speeds==0) || all(self.private.dec_speeds==0)
         disp([ mfilename ': WARNING: First start a "calibrate" operation.' ]);
         return
