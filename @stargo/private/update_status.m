@@ -34,7 +34,7 @@ function update_status(self)
     self.private.ra_speed = abs(self.private.ra_deg - ra_deg)/dt;
     self.private.dec_speed= abs(self.private.dec_deg- dec_deg)/dt;
   end
-  
+
   %   motor state and mount status: get_alignment, get_park
   % 'get_alignment', 'GW', 'query Scope alignment status(mt,tracking,nb_alignments)';
   %   isTracking: self.state.get_alignment{2} == 'T'
@@ -46,8 +46,8 @@ function update_status(self)
   % 'get_motors',    'X34','query motors state(0:5==stop,tracking,accel,decel,lowspeed,highspeed)';
   if isfield(self.state,'get_motors')
     if numel(self.state.get_motors) >= 2 && isnumeric(self.state.get_motors)
-      self.private.ra_move = self.private.get_motors(1);
-      self.private.dec_move= self.private.get_motors(2);
+      self.private.ra_move = self.state.get_motors(1);
+      self.private.dec_move= self.state.get_motors(2);
     else
       disp([ '[' datestr(now) '] WARNING: ' mfilename '.getstatus: invalid get_motors' ]);
       self.state.get_motors = [];

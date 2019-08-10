@@ -77,6 +77,7 @@ classdef stargo < handle
         return
       end
       sb.private.serial.Terminator = '#';
+      
       sb.private.pulsems     = 0;
       sb.private.ra_move     = 0;
       sb.private.dec_move    = 0;
@@ -90,6 +91,7 @@ classdef stargo < handle
       sb.private.shift_ra    = [];
       sb.private.shift_dec   = [];
       sb.private.lastUpdate  = [];
+      sb.private.timer       = [];
       
       start(sb); % make sure we start with a known configuration
       disp([ '[' datestr(now) '] ' mfilename ': ' sb.version ' connected to ' sb.dev ]);
@@ -126,6 +128,7 @@ classdef stargo < handle
       if ~isvalid(self.private.serial), disp('write: Invalid serial port'); return; end
       cmd = private_strcmp(self, cmd);  % identify command, as a struct array
       cout = '';
+      if ~isfield(self.private,'bufferSent') self.private.bufferSent=[]; end
       % send commands one by one
       for index=1:numel(cmd)
         argin = numel(find(cmd(index).send == '%'));
@@ -171,6 +174,7 @@ classdef stargo < handle
         pause(0.1)
       end
       % store output
+      if ~isfield(self.private,'bufferRecv') self.private.bufferRecv=[]; end
       self.private.bufferRecv = strtrim([ self.private.bufferRecv val ]);
       % interpret results
       [p, self] = parseparams(self);
@@ -482,7 +486,8 @@ classdef stargo < handle
       % ZOOM set (or get) slew speed. Level should be 1,2,3 or 4.
       %   ZOOM(s) returns the zoom level (slew speed)
       %
-      %   ZOOM(s, level) sets the zoom level (1-4)
+      %   ZOOM(s, level) sets the zoom level (1-4) which correspond with
+      %   'guide','center','find', and 'max'.
       levels={'guide','center','find','max'};
       current_level = nan;
       if isfield(self.private, 'zoom') && isnumeric(self.private.zoom) 
@@ -624,9 +629,11 @@ classdef stargo < handle
     
     function calibrate(self)
       % CALIBRATE measures the speed of the mount for all zoom levels
+      %   CALIBRATE(s) measures the slew speed for all settings on both axes.
+      %   The usual speeds on M-zeor are about [0.002 0.01 0.4 4] deg/s
       z0 = zoom(self);
-      ra = self.ra_deg;
-      dec= self.dec_deg;
+      ra = self.private.ra_deg;
+      dec= self.private.dec_deg;
       disp([ mfilename ': Calibrating... do not interrupt (takes 10 secs).' ]);
       stop(self);
       for z=1:4
@@ -656,7 +663,7 @@ classdef stargo < handle
       %
       %   This operation should be avoided close to the Poles, nor to meridian.
       if nargin < 2, delta_ra  = []; end
-      if nargin < 2, delta_dec = []; end
+      if nargin < 3, delta_dec = []; end
       if any(strcmpi(delta_ra,{'stop','abort'})) stop(self); return; end
       if all(self.private.ra_speeds==0) || all(self.private.dec_speeds==0)
         disp([ mfilename ': WARNING: First start a "calibrate" operation.' ]);
@@ -669,21 +676,24 @@ classdef stargo < handle
       
       % determine shift target
       if isnumeric(delta_ra) && numel(delta_ra) == 1
-        self.private.shift_ra = self.ra_deg + delta_ra;
+        self.private.shift_ra = self.private.ra_deg + delta_ra;
       end
       if isnumeric(delta_dec) && numel(delta_dec) == 1
-        self.private.shift_dec = self.dec_deg + delta_dec;
+        self.private.shift_dec = self.private.dec_deg + delta_dec;
+      end
+      if ~isempty(self.private.shift_ra) || ~isempty(self.private.shift_dec)
+        self.private.shift_zoom  = zoom(self); % store initial zoom level
       end
       % bound target values: this avoids passing bounds which will bring issues
       if ~isempty(self.private.shift_ra)
         self.private.shift_ra = max([ 0 self.private.shift_ra   ]);
         self.private.shift_ra = min([ self.private.shift_ra 360 ]);
-        self.private.shift_zoom = zoom(self);
+        self.private.shift_delta_ra = 0;
       end
       if ~isempty(self.private.shift_dec)
         self.private.shift_dec= max([ -90 self.private.shift_dec]);
         self.private.shift_dec= min([ self.private.shift_dec 90 ]);
-        self.private.shift_zoom = zoom(self);
+        self.private.shift_delta_dec = 0;
       end
       % the auto update will handle the move (calling update_shift)
     end % shift

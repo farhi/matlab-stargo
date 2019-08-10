@@ -21,7 +21,7 @@ function config=settings_dialogue(self)
     if self.state.get_alignment{1} == 'A'
       config_equalt = {'AltAz','Equatorial'};
     else
-      config_equalt = {'AltAz','Equatorial'};
+      config_equalt = {'Equatorial','AltAz'};
     end
 
     % display dialogue in non-modal to allow background tasks

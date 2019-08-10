@@ -18,14 +18,14 @@ function h = update_interface(self)
     set(obj, 'String', self.dec);
     
     obj = findobj(h, 'Tag','stargo_ra_moving');
-    set(obj, 'Value', self.state.ra_move >= 1);
+    set(obj, 'Value', self.private.ra_move >= 1);
     
     obj = findobj(h, 'Tag','stargo_dec_moving');
-    set(obj, 'Value', self.state.dec_move >= 1);
+    set(obj, 'Value', self.private.dec_move >= 1);
     
     obj = findobj(h, 'Tag','stargo_zoom');
-    if 1 <= self.state.zoom && self.state.zoom <= 4
-      set(obj, 'Value', round(self.state.zoom));
+    if 1 <= self.private.zoom && self.private.zoom <= 4
+      set(obj, 'Value', round(self.private.zoom));
     end
     
     obj = findobj(h, 'Tag','stargo_target');
