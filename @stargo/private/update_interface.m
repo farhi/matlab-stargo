@@ -12,10 +12,12 @@ function h = update_interface(self)
     set(obj, 'String', self.status);
     
     obj = findobj(h, 'Tag','stargo_ra');
-    set(obj, 'String', self.ra);
+    set(obj, 'String', self.ra, ...
+      'Tooltip',[ 'Right ascension. ' num2str(self.private.ra_deg) ' [deg]' ]);
     
     obj = findobj(h, 'Tag','stargo_dec');
-    set(obj, 'String', self.dec);
+    set(obj, 'String', self.dec, ...
+      'Tooltip',[ 'Declinaison. ' num2str(self.private.dec_deg) ' [deg]' ]);
     
     obj = findobj(h, 'Tag','stargo_ra_moving');
     set(obj, 'Value', self.private.ra_move >= 1);

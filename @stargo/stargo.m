@@ -574,6 +574,16 @@ classdef stargo < handle
       % When RA and DEC are not given, a dialogue box is shown.
       if nargin < 3, dec = []; end
       if nargin < 2, ra  = []; end
+      
+      if ~isempty(self.private.shift_ra) || ~isempty(self.private.shift_dec)
+        disp([ mfilename ': WARNING: a shift is already on-going. Wait or abort with "stop".' ]);
+        return
+      end
+      if self.private.ra_move>1 || self.private.dec_move>1
+        disp([ mfilename ': WARNING: the mount is already moving. Wait or abort with "stop".' ]);
+        return
+      end
+      
       if isempty(ra) && isempty(dec)
         NL = sprintf('\n');
         prompt = {[ '{\bf \color{blue}Enter Right Ascension RA} ' NL ...
@@ -635,10 +645,10 @@ classdef stargo < handle
       ra = self.private.ra_deg;
       dec= self.private.dec_deg;
       disp([ mfilename ': Calibrating... do not interrupt (takes 10 secs).' ]);
-      stop(self);
+      stop(self); ra_dir='n'; dec_dir='e';
       for z=1:4
         zoom(self, z);
-        move(self, 'n'); move(self, 'e');
+        move(self, ra_dir); move(self, dec_dir);
         pause(1); % let time to reach nominal speed
         getstatus(self);
         pause(1); % measure
@@ -649,10 +659,11 @@ classdef stargo < handle
           self.private.dec_speeds(z) = self.private.dec_speed;
         end
         stop(self);
-        disp([ mfilename ': Calibration done.' ]);
+        if z==3, ra_dir='s'; dec_dir='w'; end
       end
       % restore current zoom level
       zoom(self, z0);
+      disp([ mfilename ': Calibration done.' ]);
       % move back to initial location
     end % calibrate
     
@@ -660,8 +671,12 @@ classdef stargo < handle
       % SHIFT moves the mount by a given amount on both axes. The target is kept.
       %   SHIFT(s, delta_ra, delta_dec) moves the mount by given values in [deg]
       %   The values are added to the current coordinates.
+      %   The RA and DEC can also be given in absolute coordinates using strings
+      %   as 'H:M:S' and 'DEG:M:S', as well as from vectors as [H M S] and [D M S].
+      %   This move does not change the target defined with GOTO.
       %
-      %   This operation should be avoided close to the Poles, nor to meridian.
+      %   This operation should be avoided close to the Poles (DEG=+/-90), and 
+      %   to the meridian (RA=0 and 24h/360deg).
       if nargin < 2, delta_ra  = []; end
       if nargin < 3, delta_dec = []; end
       if any(strcmpi(delta_ra,{'stop','abort'})) stop(self); return; end
@@ -670,11 +685,26 @@ classdef stargo < handle
         return
       end
       if ~isempty(self.private.shift_ra) || ~isempty(self.private.shift_dec)
-        disp([ mfilename ': WARNING: a shift is already on-going. Wait for its end or abort it with "stop".' ]);
+        disp([ mfilename ': WARNING: a shift is already on-going. Wait or abort with "stop".' ]);
         return
       end
+      if self.private.ra_move>1 || self.private.dec_move>1
+        disp([ mfilename ': WARNING: the mount is already moving. Wait or abort with "stop".' ]);
+        return
+      end
+      if ischar(delta_ra),  delta_ra  = repradec(delta_ra);  end
+      if ischar(delta_dec), delta_dec = repradec(delta_dec); end
       
-      % determine shift target
+      % determine shift target: from vector [3] in HH:MM:SS and DEG:MM:SS
+      if isnumeric(delta_ra) && numel(delta_ra) == 3 % [h m s]
+        delta_ra = hms2angle(delta_ra(1),delta_ra(2),delta_ra(3))*15;
+        delta_ra = delta_ra - self.private.ra_deg;
+      end
+      if isnumeric(delta_dec) && numel(delta_dec) == 3 % [deg m s]
+        delta_dec = hms2angle(delta_dec(1),delta_dec(2),delta_dec(3));
+        delta_dec = delta_dec - self.private.dec_deg;
+      end
+      % determine shift target: from scalar (deg)
       if isnumeric(delta_ra) && numel(delta_ra) == 1
         self.private.shift_ra = self.private.ra_deg + delta_ra;
       end
@@ -696,6 +726,10 @@ classdef stargo < handle
         self.private.shift_delta_dec = 0;
       end
       % the auto update will handle the move (calling update_shift)
+      [h1,m1,s1] = angle2hms(self.private.shift_ra,  'hours');
+      [h2,m2,s2] = angle2hms(self.private.shift_dec, 'from deg');
+      disp(sprintf('%s: shift: moving to RA=%d:%d:%.1f [%f deg] ; DEC=%d*%d:%.1f [%f deg]', ...
+        mfilename, h1,m1,s1, self.private.shift_ra, h2,m2,s2, self.private.shift_dec));
     end % shift
     
     % GUI and output commands --------------------------------------------------
@@ -741,7 +775,7 @@ classdef stargo < handle
                 char(self), ...
                 [ 'On ' self.dev ], ...
                 evalc('disp(self.state)'), ...
-                '(c) E. Farhi GPL2 2019 <https://github.com/farhi/matlab-starbook>' };
+                '(c) E. Farhi GPL2 2019 <https://github.com/farhi/matlab-stargo>' };
       if ~isempty(im)
         msgbox(msg,  'About StarGO', 'custom', im);
       else
