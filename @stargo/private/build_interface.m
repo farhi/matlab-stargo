@@ -65,6 +65,7 @@ function build_callbacks(self, h, Callbacks)
       disp([ mfilename ': Invalid Tag ' Callbacks{index,1} ' in GUI' ])
     elseif ~isempty(Callbacks{index,2})
       set(obj, 'Callback', Callbacks{index,2})
+    else set(obj, 'Enable','off');
     end
   end
 
