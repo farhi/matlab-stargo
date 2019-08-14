@@ -316,8 +316,9 @@ classdef stargo < handle
       end
       if strcmpi(t0, 'now')
         % using UTCoffset allows to compute properly the Julian Day from Stellarium
+        t0 = clock;
         fprintf('Date (local)                       %s\n', datestr(t0));
-        t0 = clock; t0(4) = t0(4) - self.UTCoffset;
+        t0(4) = t0(4) - self.UTCoffset;
       end
       if ~isnumeric(t0) || numel(t0) ~= 6
         disp([ mfilename ': time: ERROR: invalid time specification. Should be e.g. t0=clock.'])
@@ -383,7 +384,7 @@ classdef stargo < handle
       elseif strcmpi(option, 'get'), option = 'get_park'; end
       if strcmp(option, 'set_home_pos')
         ret = time(self, 'now', 'home');
-        ret = [ ret queue(self, ':X351') ]; 
+        ret = [ ret queue(self, ':X351#') ]; 
       else
         if strcmpi(option,'home')
           if ~strcmpi(self.status, 'HOME') notify(self, 'moving'); end
@@ -401,12 +402,12 @@ classdef stargo < handle
     
     function sync(self)
       % SYNC synchronise current location with last target.
-      if isempty(target_name)
+      if isempty(self.target_name)
         disp([ mfilename ': WARNING: can not sync before defining a target with GOTO' ]);
         return
       end
       write(self, 'sync');
-      disp([ '[' datestr(now) '] ' mfilename '.sync: OK' ]);
+      disp([ '[' datestr(now) '] ' mfilename '.sync: OK for ' self.target_name ]);
     end % sync
     
     function ms=pulse(self, ms)
@@ -620,11 +621,14 @@ classdef stargo < handle
       end
       h1 = gotora (self, ra);
       h2 = gotodec(self, dec);
-      if isempty(target_name)
-        target_name = [ 'RA' sprintf('_%d', self.target_ra) ' DEC' sprintf('_%d', self.target_dec) ];
-      end
-      self.target_name=target_name;
+
       if ~isempty(h1) || ~isempty(h2)
+        % now we request execution of move: get_slew ":MS#"
+        write(self, 'get_slew'); pause(0.25);
+        if isempty(target_name)
+          target_name = [ 'RA' sprintf('_%d', self.target_ra) ' DEC' sprintf('_%d', self.target_dec) ];
+        end
+        self.target_name=target_name;
         getstatus(self); % also flush serial out buffer
         notify(self,'gotoStart');
         disp([ mfilename ': initiating GOTO to ' self.target_name ]);
@@ -1011,9 +1015,10 @@ function c = getcommands
     'set_tracking_rate_dec',        'X1F%04d',    '','set tracking rate on DEC (xxxx=1000+-500:500)';
     'set_tracking_sidereal',        'X123#:TQ',         '','set tracking sidereal';
     'set_tracking_solar',           'X123#:TS',         '','set tracking solar';
+    'set_torque',                   'TTT%03d',    '','set motor torque (BEWARE)';
     'set_UTCoffset',                'SG %+03d',   '','set UTC offset(hh)';
     'abort',                        'Q',          '','abort current move'; 
-    'full_abort',                   'FQ',         '','full abort/stop (switch off)';
+    'full_abort',                   'FQ',         '','full abort/stop';
     'home',                         'X361',       '','send mount to home (pA)';
     'park',                         'X362',       '','send mount to park (pB)';
     'start_slew_east',              'Me',         '','start to move east';
@@ -1026,6 +1031,7 @@ function c = getcommands
     'stop_slew_west',               'Qw',         '','stop to move west';
     'sync',                         'CM',         '','sync (align), i.e. indicate we are on last target';
     'unpark',                       'X370',       '','wake up from park (p0)';  
+    'shutdown',                     'XFF',        '','shut down StarGo completely (loose connection)';
     'get_localdate',                'GC',         '%d%c%d%c%d', 'invalid:query Local date(mm,dd,yy)';
     'get_locattime',                'GL',         '%2d:%2d:%2d','invalid:query local time(hh,mm,ss)';
     'get_tracking_freq',            'GT',         '%f','invalid:query tracking frequency';
