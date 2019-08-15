@@ -594,6 +594,8 @@ classdef stargo < handle
       %   GOTO(s, object_name) searches for object name and moves to it
       %
       % When RA and DEC are not given, a dialogue box is shown.
+      % To move 'manually' to RA/DEC coordinates you may also use the SHIFT method
+      % or movement arrows on the interface.
       if nargin < 3, dec = []; end
       if nargin < 2, ra  = []; end
       

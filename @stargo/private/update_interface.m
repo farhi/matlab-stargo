@@ -32,6 +32,9 @@ function h = update_interface(self)
     
     obj = findobj(h, 'Tag','stargo_target');
     set(obj, 'String', [ 'Target: ' self.target_name ]);
+    if ~isempty(self.target_ra)
+      set(obj, 'TooltipString',[ 'RA=' self.target_ra ' DEC=' self.target_dec ]);
+    end
     
     % change button labels according to mount type
     % get_alignment(1): A-AzEl mounted, P-Equatorially mounted, G-german mounted equatorial
