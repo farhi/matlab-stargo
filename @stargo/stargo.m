@@ -27,7 +27,7 @@ classdef stargo < handle
     version   = '';
     longitude = 48.5;
     latitude  = 2.33;
-    UTCoffset = 2;
+    UTCoffset = [];
     UserData  = [];
     
     state     = [];       % detailed controller state (raw)
@@ -92,6 +92,12 @@ classdef stargo < handle
       sb.private.shift_dec   = [];
       sb.private.lastUpdate  = [];
       sb.private.timer       = [];
+      
+      % set UTC offset from computer time
+      t0 = now;
+      utc = local_time_to_utc(t0);
+      UTCoffset = datevec(t0) - datevec(utc);
+      sb.UTCoffset = UTCoffset(4);
       
       start(sb); % make sure we start with a known configuration
       disp([ '[' datestr(now) '] ' mfilename ': ' sb.version ' connected to ' sb.dev ]);
@@ -233,6 +239,21 @@ classdef stargo < handle
       otherwise % {'short','fast'}
         list = {'get_radec','get_motors','get_ra','get_dec','get_motor_status'};
       end
+      
+      % auto check for some wrong values
+      if ~isfield(self.state, 'get_alignment') || ~iscell(self.state.get_alignment) ...
+         || numel(self.state.get_alignment{1}) ~= 1 || ~ischar(self.state.get_alignment{1})
+        list{end+1} = 'get_alignment';
+      end
+      if ~isfield(self.state,'get_motors') ...
+        || numel(self.state.get_motors) < 2 || ~isnumeric(self.state.get_motors)
+        list{end+1} = 'get_motors';
+      end
+      if ~isfield(self.state, 'get_motor_status') || numel(self.state.get_motor_status) < 3 ...
+        || ~isnumeric(self.state.get_motor_status)
+        list{end+1} = 'get_motor_status';
+      end
+      
       val = queue(self, list);
       notify(self,'updated');
       
@@ -298,8 +319,8 @@ classdef stargo < handle
       %   TIME(s,'home') is the same as above, but sets the home position/time.
       %
       %   TIME(s, t0) specifies a date/time.
-      %   The t0 is [year month day hour min sec] as obtained from clock, without 
-      %   subtracting UTCoffset to hours.
+      %   The t0 is [year month day hour min sec] as obtained from clock. The 
+      %   given time is used as is, without subtracting UTCoffset to hours.
       if nargin == 1
         t0 = 'now';
       end
@@ -317,7 +338,7 @@ classdef stargo < handle
       if strcmpi(t0, 'now')
         % using UTCoffset allows to compute properly the Julian Day from Stellarium
         t0 = clock;
-        fprintf('Date (local)                       %s\n', datestr(t0));
+        fprintf('Date (local)                       %s (UTC offset %d h)\n', datestr(t0), self.UTCoffset);
         t0(4) = t0(4) - self.UTCoffset;
       end
       if ~isnumeric(t0) || numel(t0) ~= 6
@@ -396,12 +417,12 @@ classdef stargo < handle
     end % home
     
     function align(self)
-      % ALIGN synchronise current location with last target (sync).
+      % ALIGN synchronise current RA/DEC with last target (sync).
       sync(self);
     end % align
     
     function sync(self)
-      % SYNC synchronise current location with last target.
+      % SYNC synchronise current RA/DEC with last target.
       if isempty(self.target_name)
         disp([ mfilename ': WARNING: can not sync before defining a target with GOTO' ]);
         return
@@ -757,6 +778,7 @@ classdef stargo < handle
       else id=[  '<a href="matlab:doc ' class(self) '">' class(self) '</a> ' ...
                  '(<a href="matlab:methods ' class(self) '">methods</a>,' ...
                  '<a href="matlab:plot(' iname ');">plot</a>,' ...
+                 '<a href="matlab:getstatus(' iname ',''full''); disp(' iname '.state);">state</a>,' ...
                  '<a href="matlab:disp(' iname ');">more...</a>)' ];
       end
       fprintf(1,'%s = %s %s\n',iname, id, char(self));
@@ -767,6 +789,13 @@ classdef stargo < handle
       url = fullfile('file:///',fileparts(which(mfilename)),'doc','StarGo.html');
       open_system_browser(url);
     end
+    
+    function location(self)
+      % LOCATION show the current GPS location on a Map
+      url = sprintf('https://maps.google.fr/?q=%f,%f', self.latitude, self.longitude);
+      % open in system browser
+      open_system_browser(url);
+    end % location
     
     function about(self)
       try
@@ -819,6 +848,23 @@ classdef stargo < handle
       end
       
     end % settings
+    
+    function config = inputdlg(self, varargin)
+      % INPUTDLG display a dialogue to set board settings, same as SETTINGS
+      config = settings(self, varargin{:});
+    end % inputdlg
+    
+    function t = uitable(self)
+      % UITABLE display all available commands as a Table
+      f = figure('Name', [ mfilename ': Available commands' ]);
+      commands = { self.commands.name ; self.commands.send ; self.commands.recv ; self.commands.comment };
+      t = uitable('ColumnFormat',{'char','char','char','char'}, 'Data', commands'); drawnow;
+      cnames={'Alias','Send','Receive','Description'};
+      
+      set(t, 'Units','normalized','Position',[ 0 0 1 1 ], ...
+        'ColumnName',cnames,'ColumnWidth','auto');
+    end % uitable
+        
     
     % Other commands -----------------------------------------------------------
     
@@ -948,12 +994,16 @@ function c = getcommands
     'get_st4',                      'TTGFh',      'vh%1d','query ST4 status(TF)';  
     'get_torque',                   'TTGT',       't%3d','query motor torque (x=50-150 in %)';
     'get_unkown_x1b',               'X1B',        'w%2d','query X1B, e.g. returns "w01"';
-    'get_motor_status',             'X3C',        ':Z1%1d%1d%1d','query motor status [motors=OFF,DEC,RA,all_ON;track=OFF,Moon,Sun,Star;speed=Guide,Center,Find,Max]';
+    'get_unkown_x29',               'X29',        'TCB=%d.','query X29, returns TCB';
+    'get_unkown_x461',              'X461',       'c%1d','query X461, e.g. "c1"';
     'get_unkown_x46r',              'X46r',       'c%1d','query X46r, e.g. "c1"';
+    'get_motor_status',             'X3C',        ':Z1%1d%1d%1d','query motor status [motors=OFF,DEC,RA,all_ON;track=OFF,Moon,Sun,Star;speed=Guide,Center,Find,Max]';
     'set_altaz',                    'AA',         '',     'set to alt/az mode';
     'set_autoguiding_speed_dec',    'X21%02d',    '',     'set auto guiding speed on DEC (xx for 0.xx %)';
     'set_autoguiding_speed_ra',     'X20%02d',    '',     'set auto guiding speed on RA (xx for 0.xx %)';
-    'set_date',                     'SC %02d%02d%02d','','set local date(mm,dd,yy)(0)';
+    'set_brake_ra',                 'X2B0%05d',   '',     'set Brake M.Step Value RA';
+    'set_brake_dec',                'X2B1%05d',   '',     'set Brake M.Step Value DEC';
+    'set_date',                     'SC %02d%02d%02d','', 'set local date(mm,dd,yy)(0)';
     'set_dec',                      'Sd %+03d*%02d:%02d', '','set DEC(dd,mm,ss)';
     'set_equatorial',               'AP',         '','set mount to equatorial mode';
     'set_guiding_speed_dec',        'X21%2d',     '','set DEC speed(dd percent)';
@@ -961,14 +1011,16 @@ function c = getcommands
     'set_highprec',                 'U',          '','switch to high precision';
     'set_hemisphere_north',         'TTHS0',      '','set North hemisphere';
     'set_hemisphere_south',         'TTHS1',      '','set South hemisphere';
-    'set_home_pos',                 'X31%02d%02d%02d','','sync home position';
+    'set_home_pos',                 'X31%02d%02d%02d','','sync home position (LST in HH MM SS)';
     'set_keypad_off',               'TTSFr',      '','disable keypad';
     'set_keypad_on',                'TTRFr',      '','enable keypad';
     'set_meridianflip_forced_off',  'TTRFd',      '','disable meridian flip forced';  
     'set_meridianflip_forced_on',   'TTSFd',      '','enable meridian flip forced';     
     'set_meridianflip_off',         'TTRFs',      '','disable meridian flip';     
     'set_meridianflip_on' ,         'TTSFs',      '','enable meridian flip';    
-    'set_mount_gear_ratio',         'TTSM%1d',    '','set mount model (x=1-8 for M0,576,Linear,720,645,1440,Omega,B230)'; 
+    'set_mount_gear_ratio',         'TTSM%1d',    '','set mount model (x=1-9 for M0,576,Linear,720,645,1440,Omega,B230,Custom)'; 
+    'set_mount_gear_ra',            'X2C0%7d',    '','set mount gear ratio RA (x=RA*1000)'; 
+    'set_mount_gear_dec',           'X2C1%7d',    '','set mount gear ratio DEC (x=DEC*1000)'; 
     'set_park_pos',                 'X352',       '','sync park position (0)';
     'set_polar_led',                'X07%1d',     '','set the polar LED level in 10% (x=0-9)';
     'set_pulse_east',               'Mge%04d',    '','move east for (t msec)';
@@ -976,8 +1028,9 @@ function c = getcommands
     'set_pulse_south',              'Mgs%04d',    '','move south for (t msec)';
     'set_pulse_west',               'Mgw%04d',    '','move west for (t msec)';
     'set_ra',                       'Sr %02d:%02d:%02d', '','set RA(hh,mm,ss)';
+    'set_ramp_radec',               'X06%03d%03d','','set Ramp Acceleration Value (ra,dec, e.g. 3 or 5)';
     'set_reverse_radec',            'X1A%1d%1d',  '','set RA/DEC reverse direction';
-    'set_sidereal_time',            'X32%02d%02d%02d','','set local sidereal time(hh,mm,ss)';
+    'set_sidereal_time',            'X32%02d%02d%02d','','set local sidereal time(hh,mm,ss) at park';
     'set_site_latitude',            'St%+03d*%02d:%02d#Gt', '','set site latitude(dd,mm,ss)'; 
     'set_site_longitude',           'Sg%+04d*%02d:%02d#Gg', '','set site longitude(dd,mm,ss)'; 
     'set_speed_guide',              'RG',         '','set slew speed guide (1/4)';
@@ -1015,7 +1068,7 @@ function c = getcommands
     'set_tracking_rate_dec',        'X1F%04d',    '','set tracking rate on DEC (xxxx=1000+-500:500)';
     'set_tracking_sidereal',        'X123#:TQ',         '','set tracking sidereal';
     'set_tracking_solar',           'X123#:TS',         '','set tracking solar';
-    'set_torque',                   'TTT%03d',    '','set motor torque (BEWARE)';
+    'set_torque',                   'TTT%03d',    '','set motor torque (e.g. x=50 or 70, BEWARE)';
     'set_UTCoffset',                'SG %+03d',   '','set UTC offset(hh)';
     'abort',                        'Q',          '','abort current move'; 
     'full_abort',                   'FQ',         '','full abort/stop';
@@ -1037,6 +1090,14 @@ function c = getcommands
     'get_tracking_freq',            'GT',         '%f','invalid:query tracking frequency';
     'get_UTCoffset',                'GG',         '%f','invalid:query UTC offset';
   };
+  % other unkown commands when loading MCF: 
+  % X280300 returns 0
+  % X280303 returns 0
+  % TTSMs0??>:><;8 returns 0
+  % TTSMs1????;?<5 returns 0
+  % TTGM
+  % TTGHS
+  % TTSFG
   c = [];
   for index=1:size(commands,1)
     this = commands(index,:);
