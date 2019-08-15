@@ -13,12 +13,11 @@ function plot_telescope(self)
     
   % get the scope location
   RA = []; DEC=[];
-  if ~isempty(self.telescope) && isvalid(self.telescope)
+  if isobject(self.telescope) && isvalid(self.telescope)
     try
-      getstatus(self.telescope);
       % get the current scope location
-      RA = (self.telescope.ra.h   +self.telescope.ra.min/60)*15; % h -> deg
-      DEC=  self.telescope.dec.deg+self.telescope.dec.min/60;
+      RA =  self.telescope.private.ra_deg;
+      DEC=  self.telescope.private.dec_deg;
     catch ME
       disp(getReport(ME))
     end

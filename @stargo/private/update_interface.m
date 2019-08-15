@@ -2,6 +2,7 @@ function h = update_interface(self)
 
   % check if window is already opened
   h = [ findall(0, 'Tag','StarGo_window') findall(0, 'Tag','StarGo_GUI') ];
+  self.private.figure = h;
   if ~isempty(h)
     set(0,'CurrentFigure', h); % make it active
     
@@ -55,3 +56,7 @@ function h = update_interface(self)
       end
     end
   end
+  % store current axes
+  a = [ findall(0, 'Tag','stargo_skychart') findall(0,'Tag','SkyChart_Axes') ];
+  self.private.axes = a;
+    

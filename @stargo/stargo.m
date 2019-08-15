@@ -42,7 +42,6 @@ classdef stargo < handle
   end % properties
   
   properties (Constant=true)
-    catalogs       = getcatalogs;       % load catalogs at start
     % commands: field, input_cmd, output_fmt, description
     commands       = getcommands;
   end % shared properties        
@@ -703,7 +702,7 @@ classdef stargo < handle
       %   This move does not change the target defined with GOTO.
       %
       %   This operation should be avoided close to the Poles (DEG=+/-90), and 
-      %   to the meridian (RA=0 and 24h/360deg).
+      %   to RA=0 and 24h/360deg.
       if nargin < 2, delta_ra  = []; end
       if nargin < 3, delta_dec = []; end
       if any(strcmpi(delta_ra,{'stop','abort'})) stop(self); return; end
@@ -870,63 +869,11 @@ classdef stargo < handle
     
     % Other commands -----------------------------------------------------------
     
-    function found = findobj(self, name)
+    function found = findobj(self, varargin)
       % FINDOBJ find a given object in catalogs. Select it.
       %   id = findobj(sc, name) search for a given object and return ID
-      catalogs = fieldnames(self.catalogs);
-      found = [];
-      
-      % check first for name without separator
-      if ~any(name == ' ')
-        [n1,n2]  = strtok(name, '0123456789');
-        found = findobj(self, [ n1 ' ' n2 ]);
-        if ~isempty(found) return; end
-      end
-      namel= strtrim(lower(name));
-      for f=catalogs(:)'
-        catalog = self.catalogs.(f{1});
-        if ~isfield(catalog, 'MAG'), continue; end
-        NAME = lower(catalog.NAME);
-        NAME = regexprep(NAME, '\s*',' ');
-        % search for name
-        index = find(~cellfun(@isempty, strfind(NAME, [ ';' namel ';' ])));
-        if isempty(index)
-        index = find(~cellfun(@isempty, strfind(NAME, [ namel ';' ])));
-        end
-        if isempty(index)
-        index = find(~cellfun(@isempty, strfind(NAME, [ ';' namel ])));
-        end
-        if isempty(index)
-        index = find(~cellfun(@isempty, strfind(NAME, [ namel ])));
-        end
-        if ~isempty(index)
-          found.index   = index(1);
-          found.catalog = f{1};
-          found.RA      = catalog.RA(found.index);
-          found.DEC     = catalog.DEC(found.index);
-          found.MAG     = catalog.MAG(found.index);
-          found.TYPE    = catalog.TYPE{found.index};
-          found.NAME    = catalog.NAME{found.index};
-          found.DIST    = catalog.DIST(found.index);
-          break;
-        end
-      end
-
-      if ~isempty(found)
-        disp([ mfilename ': Found object ' name ' as: ' found.NAME ]);
-        [h1,m1,s1] = angle2hms(found.RA,  'hours');
-        [h2,m2,s2] = angle2hms(found.DEC, 'from deg');
-        disp(sprintf('  RA=%d:%d:%.1f [%f deg] ; DEC=%d*%d:%.1f [%f deg]', ...
-          h1,m1,s1, found.RA, h2,m2,s2, found.DEC));
-        if found.DIST > 0
-          disp(sprintf('  %s: Magnitude: %.1f ; Type: %s ; Dist: %.3g [ly]', ...
-            found.catalog, found.MAG, found.TYPE, found.DIST*3.262 ));
-        else
-          disp(sprintf('  %s: Magnitude: %.1f ; Type: %s', ...
-            found.catalog, found.MAG, found.TYPE ));
-        end
-      else
-        disp([ mfilename ': object ' name ' was not found.' ])
+      if isobject(self.private.skychart) && ismethod(self.private.skychart, 'findobj')
+        found = findobj(self.private.skychart, varargin{:});
       end
     end % findobj
 
@@ -938,37 +885,6 @@ end % classdef
 % ------------------------------------------------------------------------------
 % private (can not be moved into /private)
 % ------------------------------------------------------------------------------
-
-function catalogs = getcatalogs
-  % GETCATALOGS load catalogs for stars and DSO.
-
-  % stored here so that they are not loaded for further calls
-  persistent loaded_catalogs  
-  
-  if ~isempty(loaded_catalogs)
-    catalogs = loaded_catalogs; 
-    return
-  end
-  
-  % load catalogs: objects, stars
-  disp([ mfilename ': Welcome ! Loading Catalogs:' ]);
-  catalogs = load(mfilename);
-  
-  % display available catalogs
-  for f=fieldnames(catalogs)'
-    name = f{1};
-    if ~isempty(catalogs.(name))
-      num  = numel(catalogs.(name).RA);
-      if isfield(catalogs.(name), 'Description')
-        desc = catalogs.(name).Description;
-      else desc = ''; end
-      disp([ mfilename ': ' name ' with ' num2str(num) ' entries.' ]);
-      disp([ '  ' desc ])
-    end
-  end
-
-  loaded_catalogs = catalogs;
-end % getcatalogs
 
 function c = getcommands
 

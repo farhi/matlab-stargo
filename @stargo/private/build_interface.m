@@ -4,9 +4,11 @@ function h = build_interface(self)
   h = [ findall(0, 'Tag','StarGo_window') findall(0, 'Tag','StarGo_GUI') ];
   if ~isempty(h)
     set(0,'CurrentFigure', h); % make it active
+    self.private.figure = h;
   else  
     % else create
     h = openfig('stargo.fig');
+    self.private.figure = h;
     
     % uicontrols
     Callbacks = { ...
@@ -33,7 +35,7 @@ function h = build_interface(self)
       'view_auto_update'        ''; ...
       'view_update',            @(src,evnt)getstatus(self,'full'); ...
       'view_commands',          @(src,evnt)uitable(self); ...
-      'navigate_settings',      @(src,evnt)settings(self);; ...
+      'navigate_settings',      @(src,evnt)settings(self); ...
       'navigate_reset',         @(src,evnt)start(stop(self)); ...
       'navigate_sync',          @(src,evnt)sync(self); ...
       'navigate_stop',          @(src,evnt)stop(self); ...
@@ -52,10 +54,25 @@ function h = build_interface(self)
       'navigate_zoom_center',   @(src,evnt)zoom(self,2); ...
       'navigate_zoom_guide',    @(src,evnt)zoom(self,1); ...
       'navigate_zoom_out',      @(src,evnt)zoom(self,'out'); ...
-      'navigate_zoom_in',       @(src,evnt)zoom(self,'in') };
+      'navigate_zoom_in',       @(src,evnt)zoom(self,'in'); ...
+      'tool_settings',          @(src,evnt)settings(self); ...
+      'tool_goto',              @(src,evnt)goto(self); ...
+      'tool_findobj',           @(src,evnt)findobj(self); ...
+      'tool_web',               @(src,evnt)web(self); ...
+      'tool_help',              @(src,evnt)help(self) };
     
     build_callbacks(self, h, Callbacks);
+    
+    % get the axes for skychart
+    self.private.axes = [ findall(0, 'Tag','stargo_skychart') findall(0,'Tag','SkyChart_Axes') ];
+    
+    if ~isempty(self.private.axes) && exist('skychart')
+      self.private.skychart = skychart('figure', h, 'axes', self.private.axes(1));
+      connect(self.private.skychart, self);
+    end
   end
+  
+  
     
 % ------------------------------------------------------------------------------
 
@@ -65,7 +82,11 @@ function build_callbacks(self, h, Callbacks)
     if ~isscalar(obj)
       disp([ mfilename ': Invalid Tag ' Callbacks{index,1} ' in GUI' ])
     elseif ~isempty(Callbacks{index,2})
-      set(obj, 'Callback', Callbacks{index,2})
+      if any(strcmp(get(obj,'Type'),{'uipushtool','uitoggletool'}))
+        set(obj, 'ClickedCallback', Callbacks{index,2})
+      else
+        set(obj, 'Callback', Callbacks{index,2})
+      end
     else set(obj, 'Enable','off');
     end
   end

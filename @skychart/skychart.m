@@ -345,6 +345,17 @@ classdef skychart < handle
       catalogs = fieldnames(self.catalogs);
       found = [];
       
+      if nargin < 2
+        prompt = {'{\color{blue}Enter a Star/Object Name} e.g. Betelgeuse, M 42, NGC 224, Venus. Use spaces between Catalog Name and ID. Known Catalogs include: Planets, StarID, HD, HR, M, NGC, IC, ...'};
+        name = 'SkyChart: Find Object';
+        options.Resize='on';
+        options.WindowStyle='normal';
+        options.Interpreter='tex';
+        answer=inputdlg(prompt,name, 1, {'M 42'}, options);
+        if ~isempty(answer), name = answer{1}; 
+        else return; end
+      end
+      
       % check first for name without separator
       if ~any(name == ' ')
         [n1,n2]  = strtok(name, '0123456789');
@@ -402,6 +413,15 @@ classdef skychart < handle
         end
         if found.X^2+found.Y^2 < 1
           self.selected = found;
+          if ishandle(sc.figure)
+            % center plot on object and replot
+            if isfield(found, 'X') && found.X^2+found.Y^2 < 1
+              figure(sc.figure);
+              set(sc.axes, 'XLim', [found.X-.1 found.X+.1], ...
+                           'YLim', [found.Y-.1 found.Y+.1]);
+            end
+            plot(sc, 1); 
+          end
         else
           disp([ mfilename ': object ' name ' is not visible.' ])
         end
@@ -427,28 +447,12 @@ classdef skychart < handle
         return
       end
       if nargin > 1
-        self.telescope = sb;
-      elseif nargin == 1 && exist('starbook')
-        sb = [];
-        % we search for any already opened starbook handle
-        h = findall(0, '-regexp', 'Tag','StarBook_','Type','figure');
-        if numel(h) > 1, h=h(1); end
-        if ~isempty(h)
-          ud = get(h, 'UserData');
-          if isstruct(ud) && isfield(ud, 'StarBook')
-            sb = ud.StarBook;
-          end
-        end
-        if isempty(sb)
-          sb = starbook;
-        else
-          disp([ mfilename ': Connecting to already opened ' get(h, 'Tag') ])
-        end
+        disp([ mfilename ': connecting Scope to SkyChart' ]);
         self.telescope = sb;
       end
     end % connect
     
-    function goto(self, RA, DEC)
+    function goto(self, varargin)
       % goto(sc, ra, dec): send scope to given location
       %   ra  is given in hh:mm:ss
       %   dec is given in deg:min
@@ -456,14 +460,12 @@ classdef skychart < handle
         if isfield(self.selected, 'RA') && isfield(self.selected, 'DEC')
           RA = self.selected.RA;
           DEC= self.selected.DEC;
+          varargin = { RA, DEC };
         else return; end
       end
-      if ~isempty(self.telescope) && isvalid(self.telescope)
+      if isobject(self.telescope) && isvalid(self.telescope) && ismethod(self.telescope, 'goto')
         % send scope
-        if isfield(self.selected, 'NAME')
-          disp([ mfilename ': GOTO ' self.selected.NAME ])
-        end
-        self.telescope.gotoradec(RA, DEC);
+        self.telescope.goto(varargin{:});
       else
         disp([ mfilename ': No Scope is Connected yet. Use "connect" first' ]);
       end
