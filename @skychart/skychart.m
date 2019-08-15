@@ -70,8 +70,8 @@ classdef skychart < handle
 
   
   properties
-  
-    catalogs  = {};       % contains data bases as a cell of struct
+
+    catalogs  = [];       % contains data bases as a cell of struct
     utc       = [];       % UTC
     place     = [];       % [ long lat in deg ]
     julianday = 0;
@@ -112,13 +112,13 @@ classdef skychart < handle
     %  visible = (X in xlim, Y in ylim, Alt > 0 and Alt,Az inpolygon(user))
     %
     % We use: catalogs = struct(stars, deepskyobjects, planets)
-    
   end % properties
   
   methods
     function sc = skychart(varargin)
     
       % handle input name/value argument pairs
+      flag_set_location = false;
       if mod(nargin,2) == 0 % name/value pairs
         for index=1:2:numel(varargin)
           switch varargin{index}
@@ -130,15 +130,17 @@ classdef skychart < handle
             sc.figure_insert = true;
           case 'catalogs'
             sc.catalogs = varargin{index+1};
+          case {'location','site','place'}
+            sc.place = varargin{index+1};
+            flag_set_location = true;
           end
         end
       end
-
-      % load catalogs
-      load(sc);
+      
+      sc.catalogs = getcatalogs;
       
       % populate with starting stuff
-      getplace(sc);
+      if ~flag_set_location, getplace(sc); end
       
       % update all and compute Alt/Az, X/Y coordinates
       compute(sc, 'now');
@@ -152,31 +154,6 @@ classdef skychart < handle
       set(sc.timer, 'UserData', sc);
       start(sc.timer);
     end % skychart
-    
-    function load(self)
-      % load catalogs: objects, stars
-      disp([ mfilename ': Welcome ! Loading Catalogs:' ]);
-      
-      if isempty(self.catalogs)
-        self.catalogs = load(mfilename);
-      end
-      
-      % create planet catalog with empty coordinates
-      self.catalogs.planets = struct('Description','Planets - http://wise-obs.tau.ac.il/~eran/matlab.html','RA',1:9);
-      
-      % display available catalogs
-      for f=fieldnames(self.catalogs)'
-        name = f{1};
-        if ~isempty(self.catalogs.(name))
-          num  = numel(self.catalogs.(name).RA);
-          if isfield(self.catalogs.(name), 'Description')
-            desc = self.catalogs.(name).Description;
-          else desc = ''; end
-          disp([ mfilename ': ' name ' with ' num2str(num) ' entries.' ]);
-          disp([ '  ' desc ])
-        end
-      end
-    end % load
    
     function getplace(self, sb)
       % getplace(sc): get the location
@@ -413,14 +390,14 @@ classdef skychart < handle
         end
         if found.X^2+found.Y^2 < 1
           self.selected = found;
-          if ishandle(sc.figure)
+          if ishandle(self.figure)
             % center plot on object and replot
             if isfield(found, 'X') && found.X^2+found.Y^2 < 1
-              figure(sc.figure);
-              set(sc.axes, 'XLim', [found.X-.1 found.X+.1], ...
+              figure(self.figure);
+              set(self.axes, 'XLim', [found.X-.1 found.X+.1], ...
                            'YLim', [found.Y-.1 found.Y+.1]);
             end
-            plot(sc, 1); 
+            plot(self, 1); 
           end
         else
           disp([ mfilename ': object ' name ' is not visible.' ])
@@ -638,6 +615,36 @@ classdef skychart < handle
 end % skychart
 
 % ------------------------------------------------------------------------------
+
+function catalogs = getcatalogs
+  % load catalogs: objects, stars
+  persistent c
+  
+  catalogs = [];
+  
+  if isempty(c)
+    disp([ mfilename ': Welcome ! Loading Catalogs:' ]);
+    
+    c = load(mfilename);
+    
+    % create planet catalog with empty coordinates
+    c.planets = struct('Description','Planets - http://wise-obs.tau.ac.il/~eran/matlab.html','RA',1:9);
+    
+    % display available catalogs
+    for f=fieldnames(c)'
+      name = f{1};
+      if ~isempty(c.(name))
+        num  = numel(c.(name).RA);
+        if isfield(c.(name), 'Description')
+          desc = c.(name).Description;
+        else desc = ''; end
+        disp([ mfilename ': ' name ' with ' num2str(num) ' entries.' ]);
+        disp([ '  ' desc ])
+      end
+    end
+  end
+  catalogs = c;
+end % getcatalogs
 
 function TimerCallback(src, evnt)
   % TimerCallback: executed regularly (5 sec)

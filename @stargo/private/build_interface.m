@@ -59,7 +59,8 @@ function h = build_interface(self)
       'tool_goto',              @(src,evnt)goto(self); ...
       'tool_findobj',           @(src,evnt)findobj(self); ...
       'tool_web',               @(src,evnt)web(self); ...
-      'tool_help',              @(src,evnt)help(self) };
+      'tool_help',              @(src,evnt)help(self); ...
+      'stargo_avalon',          @(src,evnt)web(self, 'https://www.avalon-instruments.com/') };
     
     build_callbacks(self, h, Callbacks);
     
@@ -67,8 +68,9 @@ function h = build_interface(self)
     self.private.axes = [ findall(0, 'Tag','stargo_skychart') findall(0,'Tag','SkyChart_Axes') ];
     
     if ~isempty(self.private.axes) && exist('skychart')
-      self.private.skychart = skychart('figure', h, 'axes', self.private.axes(1));
+      self.private.skychart = skychart('figure', h, 'axes', self.private.axes(1), 'location', [ self.longitude self.latitude ]);
       connect(self.private.skychart, self);
+      sc = self.private.skychart;
     end
   end
   
