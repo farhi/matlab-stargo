@@ -6,6 +6,8 @@ function update_status(self)
   ra_deg = self.private.ra_deg;
   dec_deg= self.private.dec_deg;
   
+  self.state.date = datestr(now);
+  
   if isfield(self.state, 'get_radec') && numel(self.state.get_radec) == 2
     self.private.ra_deg  = double(self.state.get_radec(1))/1e6; % in [hours]
     self.private.dec_deg = double(self.state.get_radec(2))/1e5; % in [deg]

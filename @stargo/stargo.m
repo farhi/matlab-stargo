@@ -780,7 +780,7 @@ classdef stargo < handle
       else id=[  '<a href="matlab:doc ' class(self) '">' class(self) '</a> ' ...
                  '(<a href="matlab:methods ' class(self) '">methods</a>,' ...
                  '<a href="matlab:plot(' iname ');">plot</a>,' ...
-                 '<a href="matlab:getstatus(' iname ',''full''); disp(' iname '.state);">state</a>,' ...
+                 '<a href="matlab:getstatus(' iname ',''full''); disp(' iname '.state); ans=sg;">state</a>,' ...
                  '<a href="matlab:disp(' iname ');">more...</a>)' ];
       end
       fprintf(1,'%s = %s %s\n',iname, id, char(self));
@@ -1000,14 +1000,14 @@ function c = getcommands
     'get_unkown_x461',              'X461',       'c%1d','query X461, e.g. "c1"';
     'get_unkown_x46r',              'X46r',       'c%1d','query X46r, e.g. "c1"';
     'get_motor_status',             'X3C',        ':Z1%1d%1d%1d','query motor status [motors=OFF,DEC,RA,all_ON;track=OFF,Moon,Sun,Star;speed=Guide,Center,Find,Max]';
-    'set_altaz',                    'AA',         '',     'set to alt/az mode';
+    'set_altaz',                    'AA',         '',     'set to alt/az mode (RESET board)';
     'set_autoguiding_speed_dec',    'X21%02d',    '',     'set auto guiding speed on DEC (xx for 0.xx %)';
     'set_autoguiding_speed_ra',     'X20%02d',    '',     'set auto guiding speed on RA (xx for 0.xx %)';
     'set_brake_ra',                 'X2B0%05d',   '',     'set Brake M.Step Value RA';
     'set_brake_dec',                'X2B1%05d',   '',     'set Brake M.Step Value DEC';
     'set_date',                     'SC %02d%02d%02d','', 'set local date(mm,dd,yy)(0)';
     'set_dec',                      'Sd %+03d*%02d:%02d', '','set DEC(dd,mm,ss)';
-    'set_equatorial',               'AP',         '','set mount to equatorial mode';
+    'set_equatorial',               'AP',         '','set mount to equatorial mode (RESET board)';
     'set_guiding_speed_dec',        'X21%2d',     '','set DEC speed(dd percent)';
     'set_guiding_speed_ra',         'X20%2d',     '','set RA speed(dd percent)';
     'set_highprec',                 'U',          '','switch to high precision';
@@ -1070,7 +1070,7 @@ function c = getcommands
     'set_tracking_rate_dec',        'X1F%04d',    '','set tracking rate on DEC (xxxx=1000+-500:500)';
     'set_tracking_sidereal',        'X123#:TQ',         '','set tracking sidereal';
     'set_tracking_solar',           'X123#:TS',         '','set tracking solar';
-    'set_torque',                   'TTT%03d',    '','set motor torque (e.g. x=50 or 70, BEWARE)';
+    'set_torque',                   'TTT%03d',    '','set motor torque (e.g. x=50 or 70, BEWARE; RESET board)';
     'set_UTCoffset',                'SG %+03d',   '','set UTC offset(hh)';
     'abort',                        'Q',          '','abort current move'; 
     'full_abort',                   'FQ',         '','full abort/stop';
