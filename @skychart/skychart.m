@@ -204,7 +204,7 @@ classdef skychart < handle
       d = self.utc;
     end % date
     
-    function compute(self, utc)
+    function ret = compute(self, utc)
       % compute(sc):          compute and update all catalogs
       % compute(sc, utc):     the same, but for a given UTC
       % compute(sc, 'now'):   update UTC to now, and force compute
@@ -259,11 +259,13 @@ classdef skychart < handle
       end
       
       self.update_time = self.julianday;
+      ret = self.update_time;
     end % compute
     
     function h = plot(self, force)
       % plot(sc): plot the sky chart
       
+      h = [];
       if self.plotting, return; end
       if nargin < 2, force = false; end
       if isempty(self.figure) || ~ishandle(self.figure) || self.figure_insert, force=true; end
@@ -278,6 +280,7 @@ classdef skychart < handle
 
       % when a scope is connected, replot its location
       plot_telescope(self);
+      h = self.figure;
 
       % only plot if the figure was closed, or zoom/visible area has changed
       if ~isempty(self.figure) && (isempty(force) ...

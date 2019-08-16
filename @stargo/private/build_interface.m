@@ -7,6 +7,7 @@ function h = build_interface(self)
     self.private.figure = h;
   else  
     % else create
+    disp('StarGo: building interface. Please wait.');
     h = openfig('stargo.fig');
     self.private.figure = h;
     
@@ -71,7 +72,12 @@ function h = build_interface(self)
       self.private.skychart = skychart('figure', h, 'axes', self.private.axes(1), 'location', [ self.longitude self.latitude ]);
       connect(self.private.skychart, self);
       sc = self.private.skychart;
+      % toolbar 'update' will update all
+      build_callbacks(self, h, { 'tool_update', @(src,evnt){getstatus(self,'full'),compute(sc,'force'),plot(sc,1)} });
+    else
+      build_callbacks(self, h, { 'tool_update', @(src,evnt)getstatus(self,'full') });
     end
+
   end
   
   
