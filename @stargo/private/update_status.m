@@ -19,11 +19,12 @@ function update_status(self)
     self.dec = sprintf('%c%d°%d:%.1f', sig, h2,m2,s2);
   elseif  isfield(self.state, 'get_ra') || isfield(self.state, 'get_dec')
     if isfield(self.state, 'get_ra')
-      self.ra = sprintf('%d:%d:%.1f', self.state.get_ra(1), self.state.get_ra(2), self.state.get_ra(3));
+      self.ra = sprintf('%d:%d:%.1f', self.state.get_ra);
       self.private.ra_deg  = hms2angle(self.state.get_ra)*15;
     end
     if isfield(self.state, 'get_dec')
-      self.dec= sprintf('%d°%d:%.1f', self.state.get_dec); % the sign is lost here
+      self.dec= sprintf('%d°%d:%.1f', abs(self.state.get_dec)); % the sign may be lost here
+      if any(self.state.get_dec < 0) self.dec = [ '-' self.dec ]; end
       self.private.dec_deg = hms2angle(self.state.get_dec);
     end
   end
@@ -37,7 +38,7 @@ function update_status(self)
     self.private.dec_speed= abs(self.private.dec_deg- dec_deg)/dt;
   end
 
-  %   motor state and mount status: get_alignment, get_park
+  % motor state and mount status: get_alignment, get_park
   % 'get_alignment', 'GW', 'query Scope alignment status(mt,tracking,nb_alignments)';
   %   isTracking: self.state.get_alignment{2} == 'T'
   if ~isfield(self.state, 'get_alignment') || ~iscell(self.state.get_alignment) ...

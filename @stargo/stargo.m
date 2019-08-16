@@ -85,12 +85,12 @@ classdef stargo < handle
       sb.private.zoom        = 1; % current zoom in 1:4
       sb.private.ra_speed    = 0; % current in deg/s
       sb.private.dec_speed   = 0; % current in deg/s
-      sb.private.ra_speeds   = zeros(1,4); % current in deg/s
-      sb.private.dec_speeds  = zeros(1,4); % current in deg/s
       sb.private.shift_ra    = [];
       sb.private.shift_dec   = [];
       sb.private.lastUpdate  = [];
       sb.private.timer       = [];
+      sb.private.ra_speeds   = [0.002 0.01 0.4 4];  % in deg/s
+      sb.private.dec_speeds  = [0.002 0.01 0.4 4];
       
       % set UTC offset from computer time
       t0 = now;
@@ -141,7 +141,6 @@ classdef stargo < handle
           || (numel(varargin) == 1 && isnumeric(varargin{1}) && argin == numel(varargin{1}))
           c = sprintf(cmd(index).send, varargin{:});
           if self.verbose
-            
             disp( [ mfilename '.write: ' cmd(index).name ' "' c '"' ]);
           end
           fprintf(self.private.serial, c); % SEND
@@ -234,23 +233,27 @@ classdef stargo < handle
           'get_st4', 'get_alignment', 'get_keypad', 'get_meridian', 'get_park', ...
           'get_system_speed_slew', 'get_autoguiding_speed', 'get_sideofpier','get_ra','get_dec', ...
           'get_meridian_forced','get_torque','get_precision','get_unkown_x1b','get_motor_status'};
+        option = 'full';
         % invalid: get_localdate get_locattime get_UTCoffset get_tracking_freq
       otherwise % {'short','fast'}
         list = {'get_radec','get_motors','get_ra','get_dec','get_motor_status'};
+        option = 'short';
       end
       
       % auto check for some wrong values
-      if ~isfield(self.state, 'get_alignment') || ~iscell(self.state.get_alignment) ...
-         || numel(self.state.get_alignment{1}) ~= 1 || ~ischar(self.state.get_alignment{1})
-        list{end+1} = 'get_alignment';
-      end
-      if ~isfield(self.state,'get_motors') ...
-        || numel(self.state.get_motors) < 2 || ~isnumeric(self.state.get_motors)
-        list{end+1} = 'get_motors';
-      end
-      if ~isfield(self.state, 'get_motor_status') || numel(self.state.get_motor_status) < 3 ...
-        || ~isnumeric(self.state.get_motor_status)
-        list{end+1} = 'get_motor_status';
+      if strcmp(option, 'short')
+        if ~isfield(self.state, 'get_alignment') || ~iscell(self.state.get_alignment) ...
+           || numel(self.state.get_alignment{1}) ~= 1 || ~ischar(self.state.get_alignment{1})
+          list{end+1} = 'get_alignment';
+        end
+        if ~isfield(self.state,'get_motors') ...
+          || numel(self.state.get_motors) < 2 || ~isnumeric(self.state.get_motors)
+          list{end+1} = 'get_motors';
+        end
+        if ~isfield(self.state, 'get_motor_status') || numel(self.state.get_motor_status) < 3 ...
+          || ~isnumeric(self.state.get_motor_status)
+          list{end+1} = 'get_motor_status';
+        end
       end
       
       val = queue(self, list);
@@ -512,7 +515,7 @@ classdef stargo < handle
       levels={'guide','center','find','max'};
       current_level = nan;
       if isfield(self.private, 'zoom') && isnumeric(self.private.zoom) 
-        current_level = self.private.zoom;
+        current_level = self.private.zoom; % read from get_motor_status(3) in update_status
       end
       if isfinite(current_level) && 1 <= current_level && current_level <= 4
         current_level_char = levels{current_level}; 
@@ -553,8 +556,8 @@ classdef stargo < handle
       %
       %   MOVE(s, 'dir stop') stops the movement in given direction, as above.
       %
-      %   MOVE(s, 'dir', msec) moves the mount in given direction for given time
-      %   in [msec].
+      %   MOVE(s, 'dir', msec) moves the mount at low speed in given direction for 
+      %   given time in [msec].
       if nargin < 3, msec = 0; end
       if nargin > 1
         if strcmpi(lower(nsew),'stop') stop(self); return; end
