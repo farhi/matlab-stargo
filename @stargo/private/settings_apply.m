@@ -82,7 +82,7 @@ function config = settings_apply(self, fig, config0)
     case 'longitude'
       config.longitude          = repradec(config.longitude);
       if numel(config.longitude) == 1
-        [d,m,s] = angle2hms(config.longitude),'deg');
+        [d,m,s] = angle2hms(config.longitude);
         config.longitude = [ d m s ];
       end
       if numel(config.longitude) == 3
@@ -95,7 +95,7 @@ function config = settings_apply(self, fig, config0)
     case 'latitude'
       config.latitude           = repradec(config.latitude);
       if numel(config.latitude) == 1
-        [d,m,s] = angle2hms(config.latitude),'deg');
+        [d,m,s] = angle2hms(config.latitude);
         config.latitude = [ d m s ];
       end
       if numel(config.latitude) == 3
