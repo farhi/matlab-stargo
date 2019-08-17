@@ -68,27 +68,30 @@ classdef skychart < handle
   
   properties
 
-    catalogs  = [];       % contains data bases as a cell of struct
-    utc       = [];       % UTC
-    place     = [];       % [ long lat in deg ]
-    julianday = 0;
-    update_time = 0;      % local time of last computation
-    update_period = 120;  % in seconds
-    figure    = [];
-    figure_insert = false;
-    axes_insert   = false;
-    axes      = [];
-    telescope = [];
-    xlim      = [0 0];
-    ylim      = [0 0];
-    timer     = [];
-    selected  = [];
-    list      = [];       % a list of selected objects
-    list_start= 0;        % start time when reading the list
-    list_period = 1800;   % time between list/planning GOTO actions
-    plotting  = false;
-    UserData  = [];
-    update_counter = 0;
+    catalogs  = [];       % Contains data bases as a cell of struct.
+    utc       = [];       % The UTC offset (time-zone, daylight saving) in hours.
+    place     = [];       % The current observation [ longitude latitude ] in deg.
+    julianday = 0;        % The date/time in Julian calendar.
+    update_time = 0;      % The local time of last computation.
+    update_period = 120;  % The chart re-computation interval in seconds.
+    figure    = [];       % The figure showing the Chart.
+    figure_insert = false;% True when inserting the Chart in an existing figure.
+    axes_insert   = false;% True when inserting the Chart in an existing axis.
+    axes      = [];       % The axis showing the Chart.
+    telescope = [];       % The handle to the connected Scope.
+    xlim      = [0 0];    % The current X axis limits.
+    ylim      = [0 0];    % The current Y axis limits.
+    timer     = [];       % The update timer.
+    selected  = [];       % The last selected/searched object.
+    list      = [];       % The list of selected objects.
+    list_start= 0;        % The start time when running the list.
+    list_period = 1800;   % The time interval between list/planning GOTO actions in seconds.
+    plotting  = false;    % True when plotting
+    UserData  = [];       % Open for any further storage from User
+    update_counter = 0;   % A counter to automatically replot all after e.g. 10 min.
+    
+    selected_is_down = true;  % When true, the sky is rotated to show selected object downwards.
+    selected_angle   = 0;
     
     % catalogs is a struct array of single catalog entries.
     % Each named catalog entry has fields:
@@ -114,7 +117,7 @@ classdef skychart < handle
   
   methods
     function sc = skychart(varargin)
-      % SKYCHART create a SkyChart View.
+      % SKYCHART Create a SkyChart View.
       %   SKYCHART alone creates a view.
       %
       %   SKYCHART('Property', value, ...) specifies how to create the View.
@@ -163,7 +166,7 @@ classdef skychart < handle
     end % skychart
    
     function getplace(self, sb)
-      % GETPLACE get the current location
+      % GETPLACE Get the current location.
       %   GETPLACE(sc) requests location from the Network.
       %
       %   GETPLACE(sc, [lon lat]) sets location given in degrees.
@@ -184,7 +187,7 @@ classdef skychart < handle
     end % getplace
    
     function d=date(self, utc)
-      % DATE get the current UTC date.
+      % DATE Get the current UTC date.
       %   DATE(sc) sets the current time from the clock.
       %
       %   DATE(sc, UTC) sets the date as given UTC (string, number, vector).
@@ -208,7 +211,7 @@ classdef skychart < handle
     end % date
     
     function ret = compute(self, utc)
-      % COMPUTE compute position of objects for all catalogs.
+      % COMPUTE Compute position of objects for all catalogs.
       %   COMPUTE(sc) updates only when time has changed significantly (2 min).
       %
       %   COMPUTE(sc, utc)     the same, but for a given UTC.
@@ -249,14 +252,19 @@ classdef skychart < handle
         % compute the horizontal coordinates (Alt-Az)
         [catalog.Az, catalog.Alt] = radec2altaz(catalog.RA, catalog.DEC, ...
           self.julianday, self.place);
+        % apply rotation on selected object when option is ON
+        if self.selected_is_down && isfield(self.selected,'Az')
+          delta_az = self.selected.Az+180;
+        else delta_az = 0;
+        end
         % compute the stereographic polar coordinates
         [catalog.X, catalog.Y]    = pr_stereographic_polar( ...
-          catalog.Az+90, catalog.Alt);
+          catalog.Az+90-delta_az, catalog.Alt);
           
         % special case for constellations: compute lines for patterns
         if strcmp(f{1}, 'constellations')
           catalog = compute_constellations(catalog, ...
-            self.julianday, self.place);
+            self.julianday, self.place, delta_az);
         end
           
         % update catalog
@@ -270,7 +278,7 @@ classdef skychart < handle
     end % compute
     
     function h = plot(self, force)
-      % PLOT plot the sky chart.
+      % PLOT Plot the sky chart.
       %   PLOT(s) plot the skyview when axes limits have changed. Any attached 
       %   Scope coordinates are also shown (red cross/circle).
       %
@@ -324,7 +332,7 @@ classdef skychart < handle
     end % plot
     
     function close(self)
-      % CLOSE close skychart.
+      % CLOSE Close the SkyChart.
       if isa(self.timer, 'timer') && isvalid(self.timer)
         stop(self.timer); delete(self.timer);
       end
@@ -333,12 +341,12 @@ classdef skychart < handle
     end
     
     function delete(self)
-      % DELETE deletes the SkyChart object
+      % DELETE Delete the SkyChart object.
       close(self);
     end % delete
     
     function found = findobj(self, name)
-      % FINDOBJ search for an object (star, DSO, planet) in catalogs.
+      % FINDOBJ Search for an object (star, DSO, planet) in catalogs.
       %   FINDOBJ(sc, name) search for a given object in catalogs. Select it.
       %   The found object is returned as a structure.
       %
@@ -435,7 +443,7 @@ classdef skychart < handle
     end
     
     function url=help(self)
-      % HELP open the SkyChart Help page.
+      % HELP Open the SkyChart Help page.
       url = fullfile('file:///',fileparts(which(mfilename)),'doc','SkyChart.html');
       open_system_browser(url);
     end
@@ -443,7 +451,7 @@ classdef skychart < handle
     % scope methods ------------------------------------------------------------
     
     function connect(self, sb)
-      % CONNECT connect the SkyChart to a scope controller.
+      % CONNECT Connect the SkyChart to a scope controller.
       if ~isempty(self.telescope) && isvalid(self.telescope)
         disp([ mfilename ': Scope is already connected.' ])
         plot(self.telescope);
@@ -456,7 +464,7 @@ classdef skychart < handle
     end % connect
     
     function goto(self, varargin)
-      % GOTO send the scope to given object/coordinates
+      % GOTO Send the scope to given object/coordinates.
       %   GOTO(sc, ra, dec) send scope to given location
       %     ra  is given in hh:mm:ss or DEG
       %     dec is given in deg:min or DEG
@@ -480,7 +488,7 @@ classdef skychart < handle
     % list/planning methods ----------------------------------------------------
     
     function l = listAdd(self, RA, DEC, name)
-      % listAdd ad an object to the List of planned observations.
+      % listAdd Add an object to the List of planned observations.
       %   listAdd(sc) add the last selected object to the List.
       %
       %   listAdd(sc, name) search for name and add it to the List.
@@ -514,7 +522,7 @@ classdef skychart < handle
     end % listAdd
     
     function listClear(self)
-      % listClear clear the List
+      % listClear Clear the List.
       %   listClear(sc)
       self.list = [];
       if ishandle(self.figure)
@@ -523,7 +531,7 @@ classdef skychart < handle
     end % listClear
     
     function l=listShow(self)
-      % listShow show the current List in a Dialogue window.
+      % listShow Show the current List in a Dialogue window.
       %   listShow(sc)
       %   The Dialogue allows to select objects and remove them.
       
@@ -552,13 +560,13 @@ classdef skychart < handle
     end % listShow
     
     function listRun(self)
-      % listRun start to execute a list of GOTO's
+      % listRun Start to execute a list of GOTO's.
       %   listRun(sc)
       self.list_start = true;
     end % listRun
     
     function listPeriod(self, dt)
-      % listPeriod open dialogue to change the List period (in [s]) 
+      % listPeriod Open dialogue to change the List period (in [s]) .
       %   listPeriod(sc) open the dialogue.
       %
       %   listPeriod(sc, dt) set the List period to dt [s]
@@ -580,7 +588,7 @@ classdef skychart < handle
     end % listPeriod
     
     function l=listGrid(self, RA, DEC, n, da)
-      % listGrid build a grid of observations around an object for e.g. stitching.  
+      % listGrid Build a grid of observations around an object for e.g. stitching.  
       %   listGrid(sc) build a 3x3 grid around selection with step 0.75 deg.
       %
       %   listGrid(sc, RA, DEC, N, da) build a N x N grid around RA/DEC with angular step da.
@@ -647,7 +655,7 @@ classdef skychart < handle
     end % listGrid
     
     function l=grid(self, varargin)
-      % GRID build a grid around current selection
+      % GRID Build a grid around current selection.
       %   GRID(s, ...) is equivalent to listGrid.
       l=listGrid(self, varargin{:});
     end

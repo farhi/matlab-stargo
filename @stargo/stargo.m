@@ -20,45 +20,46 @@ classdef stargo < handle
   % =====
   % You can get the StarGo status with GETSTATUS(sg).
   %
-  % (c) E. Farhi, GPL2 - version 19.06
+  % (c) E. Farhi, GPL2 - version 19.08
 
   properties
-    dev       = 'COM1'; 
-    version   = '';
-    longitude = 48.5;
-    latitude  = 2.33;
-    UTCoffset = [];
-    UserData  = [];
+    dev       = 'COM1';   % The serial port, e.g. COM1, /dev/ttyUSB0
+    version   = '';       % The version of the StarGo board
+    longitude = 48.5;     % The current observation longitude (in deg)
+    latitude  = 2.33;     % The current observation latitude (in deg)
+    UTCoffset = [];       % The UTC offset (time-zone, daylight saving) in hours.
+    UserData  = [];       % Open for any further storage from User
     
-    state     = [];       % detailed controller state (raw)
-    private   = [];       % we put our stuff
-    status    = 'INIT';
-    verbose   = false;
-    target_ra = [];
-    target_dec= [];
-    target_name = '';
-    ra        = []; % as a string for display
-    dec       = []; % as a string
+    state     = [];       % Detailed controller state (raw)
+    private   = [];       % We put our internal stuff
+    status    = 'INIT';   % The current mount state (TRACKING, MOVING, ...)
+    verbose   = false;    % Set to true to get plenty of messages
+    target_ra = [];       % The target RA in  [HH MM SS] set on GOTO
+    target_dec= [];       % The target DEC in [DEG MM SS]
+    target_name = '';     % The target name
+    ra        = [];       % Current RA as a string for display
+    dec       = [];       % Current DEC as a string
   end % properties
   
   properties (Constant=true)
-    % commands: field, input_cmd, output_fmt, description
-    commands       = getcommands;
+    commands       = getcommands; % The list of commands (send/recv)
   end % shared properties        
                 
   events
-    gotoStart        
-    gotoReached
-    moving
-    idle   
-    updated   
+    gotoStart       % triggered when a GOTO has been requested
+    gotoReached     % triggered when a GOTO has reached destination
+    moving          % triggered when MOVING
+    idle            % triggered when STOPPED or TRACKING
+    updated         % triggered when a GETSTATUS is requested
   end              
   
   methods
   
     function sb = stargo(dev)
-      % STARGO start communication an given device and initialize the stargo
+      % STARGO Start communication on given device and initialize the stargo
       %   sb=STARGO(dev) specify a device, e.g. /dev/ttyUSB0
+      %
+      %   sb=STARGO('sim') start the StarGo simulator
       
       if nargin
         sb.dev = dev;
@@ -124,10 +125,11 @@ classdef stargo < handle
     % I/O stuff ----------------------------------------------------------------
     
     function cout = write(self, cmd, varargin)
-      % WRITE sends a single command, does not wait for answer.
+      % WRITE Send a single command, does not wait for answer.
       %   WRITE(self, cmd) sends a single command asynchronously.
       %   The command can be a single serial string, or the command name,
-      %   or a structure with 'send' field.
+      %   or a structure with 'send' field. Commands can be given as encoded 
+      %   strings, or symbolic commands as displayed with UITABLE(s).
       %
       %   WRITE(self, { cmd1, cmd2 ... }) same as above with multiple commands.
       %
@@ -168,7 +170,8 @@ classdef stargo < handle
     end % write
     
     function [val, self] = read(self)
-      % READ receives the output from the serial port.
+      % READ Receive the output from the serial port.
+      %   val = READ(s) reads the mount messages after WRITE calls.
       
       % this can be rather slow as there are pause calls.
       % registering output may help.
@@ -207,14 +210,19 @@ classdef stargo < handle
     end % read
     
     function val = queue(self, cmd, varargin)
-      % QUEUE sends a single command, returns the answer.
+      % QUEUE Send a single command, returns the answer.
+      %   val = QUEUE(s, cmd, ...) sends 'cmd' with optional arguments and return
+      %   the mount messages. Commands can be given as encoded strings, or symbolic
+      %   commands as displayed with UITABLE(s).
+      %
+      %   val = QUEUE(s, {cmd1, cmd2, ...}) sends multiple commands.
       if nargin == 1, val = read(self); return; end
       write(self, cmd, varargin{:});
       [val, self] = read(self);
     end % queue
         
     function delete(self)
-      % DELETE close connection
+      % DELETE Close connection
       h = update_interface(self);
       if isa(self.private.timer,'timer') && isvalid(self.private.timer)
         stop(self.private.timer);
@@ -230,13 +238,13 @@ classdef stargo < handle
     % GET commands -------------------------------------------------------------
     
     function v = identify(self)
-      % IDENTIFY reads the StarGo identification string.
+      % IDENTIFY Read the StarGo identification string.
       self.version = queue(self, {'get_manufacturer','get_firmware','get_firmwaredate'});
       v = self.version;
     end % identify
     
     function val = getstatus(self, option)
-      % GETSTATUS get the mount status (RA, DEC, Status)
+      % GETSTATUS Get the mount status (RA, DEC, Status)
       %   GETSTATUS(s) gets the default status. Results are stored in s.state
       %
       %   GETSTATUS(s,'full') gets the full status.
@@ -295,7 +303,7 @@ classdef stargo < handle
     
     % SET commands -------------------------------------------------------------
     function self=stop(self)
-      % STOP stop/abort any mount move.
+      % STOP Stop/abort any mount move.
       
       % add:
       % X0AAUX1ST X0FAUX2ST FQ(full_abort) X3E0(full_abort) 
@@ -311,7 +319,8 @@ classdef stargo < handle
     end % stop
     
     function self=start(self)
-      % START reset mount to its startup state.
+      % START Reset mount to its startup state.
+      
       flush(self);
       identify(self);
       % normal sequence: 
@@ -331,7 +340,7 @@ classdef stargo < handle
     end % start
     
     function ret=time(self, t0, cmd)
-      % TIME set the local sidereal time (LST)
+      % TIME Set the local sidereal time (LST)
       %   TIME(s) uses current time, and UTC offset (daylight saving)
       %   TIME(s,'now') is the same as above.
       %
@@ -376,7 +385,7 @@ classdef stargo < handle
     end % time
     
     function ret=park(self, option)
-      % PARK send the mount to a reference PARK position.
+      % PARK Send the mount to a reference PARK position.
       %   PARK(s) sends the mount to its PARK position.
       %
       %   PARK(s,'park') is the same as above (send to park position).
@@ -403,12 +412,12 @@ classdef stargo < handle
     end % park
     
     function ret=unpark(self)
-      %   UNPARK wakes-up mount from park position.
+      %   UNPARK Wake-up mount from park position.
       ret = park(self, 'unpark');
     end % unpark
     
     function ret=home(self, option)
-      % HOME send the mount to its HOME position.
+      % HOME Send the mount to its HOME position.
       %   HOME(s) sends the mount to its HOME position.
       %
       %   HOME(s,'home') is the same as above (send to home position).
@@ -436,12 +445,12 @@ classdef stargo < handle
     end % home
     
     function align(self)
-      % ALIGN synchronise current RA/DEC with last target (sync).
+      % ALIGN Synchronise current RA/DEC with last target (sync).
       sync(self);
     end % align
     
     function sync(self)
-      % SYNC synchronise current RA/DEC with last target.
+      % SYNC Synchronise current RA/DEC with last target.
       if isempty(self.target_name)
         disp([ '[' datestr(now) '] ' mfilename ': WARNING: can not sync before defining a target with GOTO' ]);
         return
@@ -451,7 +460,7 @@ classdef stargo < handle
     end % sync
     
     function ms=pulse(self, ms)
-    % PULSE get/set pulse length for slow moves
+    % PULSE Get/set pulse length for slow moves
       if nargin < 2, ms = self.private.pulsems; 
       else 
         if ischar(ms), ms = str2double(ms); end
@@ -462,7 +471,7 @@ classdef stargo < handle
     end % pulse
     
     function track=tracking(self, track)
-    % TRACKING get/set tracking mode
+    % TRACKING Get/set tracking mode
     %   TRACKING(s) returns true when tracking is ON, otherwise false.
     %
     %   TRACKING(s,'on') and TRACKING(s,'off') engage/disable tracking.
@@ -494,11 +503,11 @@ classdef stargo < handle
     end % tracking
     
     function flip = meridianflip(self, flip)
-    % MERIDIANFLIP get/set meridian flip behaviour
+    % MERIDIANFLIP Get/set meridian flip behaviour
     %   MERIDIANFLIP(s) returns the meridian flip mode
     %
     %   MERIDIANFLIP(s, 'auto|off|forced') sets the meridian flip as
-    %   auto (on), off, and forced resp.
+    %   auto (on), off, and forced respectively.
     
     % 0: Auto mode: Enabled and not Forced
     % 1: Disabled mode: Disabled and not Forced
@@ -524,7 +533,7 @@ classdef stargo < handle
     end % meridianflip
     
     function level = zoom(self, level)
-      % ZOOM set (or get) slew speed. Level should be 1,2,3 or 4.
+      % ZOOM Set (or get) slew speed. Level should be 1,2,3 or 4.
       %   ZOOM(s) returns the zoom level (slew speed)
       %
       %   ZOOM(s, level) sets the zoom level (1-4) which correspond with
@@ -567,9 +576,9 @@ classdef stargo < handle
     % MOVES --------------------------------------------------------------------
     
     function move(self, nsew, msec)
-      % MOVE slew the mount in N/S/E/W directions
+      % MOVE Slew the mount in N/S/E/W directions
       %   MOVE(s, 'dir') moves the mount in given direction. The direction can be
-      %   'n', 's','e','w' for the North, South, East, West.
+      %   'n','s','e','w' for the North, South, East, West.
       %
       %   MOVE(s, 'dir stop') stops the movement in given direction, as above.
       %
@@ -601,10 +610,11 @@ classdef stargo < handle
     end % move
     
     function goto(self, ra, dec)
-      % GOTO send the mount to given RA/DEC coordinates.
+      % GOTO Send the mount to given RA/DEC coordinates.
       %   GOTO(s, ra,dec) moves mount to given RA,DEC coordinates in [deg].
       %   When any of RA or DEC is empty, the other is positioned.
       %   GOTO can only be used after a HOME('set') and/or SYNC.
+      %   This defines the mount target, as opposed to SHIFT.
       %
       %   GOTO(s, [H M S], [d m s]) same as above for HH:MM:SS and dd°mm:ss
       %
@@ -678,15 +688,15 @@ classdef stargo < handle
     end % goto
     
     function gotoradec(self, varargin)
-      % GOTORADEC send the mount to given RA/DEC coordinates.
+      % GOTORADEC Send the mount to given RA/DEC coordinates.
       %   This is equivalent to GOTO
       goto(self, varargin{:});
     end % gotoradec
     
     function calibrate(self)
-      % CALIBRATE measures the speed of the mount for all zoom levels
+      % CALIBRATE Measure the speed of the mount for all zoom levels.
       %   CALIBRATE(s) measures the slew speed for all settings on both axes.
-      %   The usual speeds on M-zeor are about [0.002 0.01 0.4 4] deg/s
+      %   The usual speeds on M-zero are about [0.002 0.01 0.4 4] deg/s
       z0 = zoom(self);
       ra = self.private.ra_deg;
       dec= self.private.dec_deg;
@@ -714,7 +724,7 @@ classdef stargo < handle
     end % calibrate
     
     function shift(self, delta_ra, delta_dec)
-      % SHIFT moves the mount by a given amount on both axes. The target is kept.
+      % SHIFT Move the mount by a given amount on both axes. The target is kept.
       %   SHIFT(s, delta_ra, delta_dec) moves the mount by given values in [deg]
       %   The values are added to the current coordinates.
       %   The RA and DEC can also be given in absolute coordinates using strings
@@ -781,6 +791,7 @@ classdef stargo < handle
     % GUI and output commands --------------------------------------------------
     
     function c = char(self)
+      % CHAR Return the mount state as a short string.
       c = [ 'RA=' self.ra ' DEC=' self.dec ' ' self.status ];
       if ~strncmp(self.target_name,'RA_',3)
         c = [ c ' ' self.target_name ];
@@ -788,7 +799,7 @@ classdef stargo < handle
     end % char
     
     function display(self)
-      % DISPLAY display StarGo object (short)
+      % DISPLAY Display StarGo object (short).
       
       if ~isempty(inputname(1))
         iname = inputname(1);
@@ -806,19 +817,20 @@ classdef stargo < handle
     end % display
     
     function url=help(self)
-      % HELP open the Help page
+      % HELP Open the Help page.
       url = fullfile('file:///',fileparts(which(mfilename)),'doc','StarGo.html');
       open_system_browser(url);
     end
     
     function location(self)
-      % LOCATION show the current GPS location on a Map
+      % LOCATION Show the current GPS location on a Map.
       url = sprintf('https://maps.google.fr/?q=%f,%f', self.latitude, self.longitude);
       % open in system browser
       open_system_browser(url);
     end % location
     
     function about(self)
+      % ABOUT Display a dialogue about the mount status and software.
       try
         im = imread(fullfile(fileparts(which(mfilename)),'doc','stargo.jpg'));
       catch
@@ -838,14 +850,14 @@ classdef stargo < handle
     end % about
     
     function h = plot(self)
-      % PLOT display main StarGo GUI 
+      % PLOT Display main StarGo GUI.
       h = build_interface(self);
       figure(h); % raise
       update_interface(self);
     end % plot
     
     function url = web(self, url)
-      % WEB display the StarGo RA/DEC location in a web browser (http://www.sky-map.org)
+      % WEB Display the StarGo RA/DEC location in a web browser (http://www.sky-map.org).
       self.getstatus;
       if nargin < 2
         url = sprintf([ 'http://www.sky-map.org/?ra=%f&de=%f&zoom=%d' ...
@@ -858,7 +870,7 @@ classdef stargo < handle
     end % web
     
     function config = settings(self, fig, config0)
-      % SETTINGS display a dialogue to set board settings
+      % SETTINGS Display a dialogue to set board settings.
       %  SETTINGS(s) display a dialogue to set mount configuration
 
       config = [];
@@ -871,12 +883,12 @@ classdef stargo < handle
     end % settings
     
     function config = inputdlg(self, varargin)
-      % INPUTDLG display a dialogue to set board settings, same as SETTINGS
+      % INPUTDLG Display a dialogue to set board settings, same as SETTINGS.
       config = settings(self, varargin{:});
     end % inputdlg
     
     function t = uitable(self)
-      % UITABLE display all available commands as a Table
+      % UITABLE Display all available commands as a Table.
       f = figure('Name', [ mfilename ': Available commands' ]);
       commands = { self.commands.name ; self.commands.send ; self.commands.recv ; self.commands.comment };
       t = uitable('ColumnFormat',{'char','char','char','char'}, 'Data', commands'); drawnow;
@@ -890,10 +902,12 @@ classdef stargo < handle
     % Other commands -----------------------------------------------------------
     
     function found = findobj(self, varargin)
-      % FINDOBJ find a given object in catalogs. Select it.
+      % FINDOBJ Find a given object in catalogs. Select it.
       %   id = findobj(sc, name) search for a given object and return ID
       if isobject(self.private.skychart) && ismethod(self.private.skychart, 'findobj')
         found = findobj(self.private.skychart, varargin{:});
+      else
+        disp([ mfilename ': You first need to start the user interface with PLOT.' ]);
       end
     end % findobj
 

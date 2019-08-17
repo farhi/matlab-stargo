@@ -73,7 +73,7 @@ function h = build_interface(self)
       connect(self.private.skychart, self);
       sc = self.private.skychart;
       % toolbar 'update' will update all
-      build_callbacks(self, h, { 'tool_update', @(src,evnt){getstatus(self,'full'),compute(sc,'force'),plot(sc,1)} });
+      build_callbacks(self, h, { 'tool_update', @(src,evnt){getstatus(self,'full'),compute(sc,'now'),plot(sc,1)} });
     else
       build_callbacks(self, h, { 'tool_update', @(src,evnt)getstatus(self,'full') });
     end
