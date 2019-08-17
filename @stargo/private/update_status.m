@@ -17,6 +17,14 @@ function update_status(self)
     if self.state.get_radec(2) < 0, sig = '-'; else sig=''; end
     self.ra  = sprintf('%d:%d:%.1f', h1,m1,s1);
     self.dec = sprintf('%c%d°%d:%.1f', sig, h2,m2,s2);
+    if strncmp(self.dev, 'sim', 3) || ~isfield(self.state,'get_ra')  self.state.get_ra =[h1 m1 s1 ]; end
+    if strncmp(self.dev, 'sim', 3) || ~isfield(self.state,'get_dec')
+      self.state.get_dec=[ h2 m2 s2 ];
+      if self.state.get_radec(2) < 0
+        index = find(self.state.get_dec,1,'first');
+        self.state.get_dec(index)=-self.state.get_dec(index);
+      end
+    end
   elseif  isfield(self.state, 'get_ra') || isfield(self.state, 'get_dec')
     if isfield(self.state, 'get_ra')
       self.ra = sprintf('%d:%d:%.1f', self.state.get_ra);

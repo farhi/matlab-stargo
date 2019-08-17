@@ -34,7 +34,7 @@ function h = update_interface(self)
     obj = findobj(h, 'Tag','stargo_target');
     set(obj, 'String', [ 'Target: ' self.target_name ]);
     if ~isempty(self.target_ra)
-      set(obj, 'TooltipString',[ 'RA=' self.target_ra ' DEC=' self.target_dec ]);
+      set(obj, 'TooltipString',[ 'RA=' mat2str(self.target_ra) ' DEC=' mat2str(self.target_dec) ]);
     end
     
     % change button labels according to mount type

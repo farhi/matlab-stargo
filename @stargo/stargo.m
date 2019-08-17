@@ -65,15 +65,19 @@ classdef stargo < handle
       end
       
       % connect serial port
-      try
-        sb.private.serial = serial(sb.dev); fopen(sb.private.serial);
-      catch ME
-        disp([ mfilename ': ERROR: failed to connect ' sb.dev ]);
-        g = getports; 
-        if isempty(g), 
-          disp('No connected serial port. Check cables/reconnect.')
-        else disp(g); end
-        return
+      if ~strncmp(sb.dev, 'sim', 3)
+        try
+          sb.private.serial = serial(sb.dev); fopen(sb.private.serial);
+        catch ME
+          disp([ '[' datestr(now) '] ' mfilename ': ERROR: failed to connect ' sb.dev ]);
+          g = getports; 
+          if isempty(g), 
+            disp('No connected serial port. Check cables/reconnect.')
+          else disp(g); end
+          return
+        end
+      else
+        disp([ '[' datestr(now) '] ' mfilename ': Using "simulate" mode.' ]);
       end
       sb.private.serial.Terminator = '#';
       
@@ -130,7 +134,13 @@ classdef stargo < handle
       %   WRITE(self, cmd, arg1, arg2, ...) same as above when a single command 
       %   requires additional arguments.
       
-      if ~isvalid(self.private.serial), disp('write: Invalid serial port'); return; end
+      if strncmp(self.dev, 'sim',3)
+        [cout, self] = write_sim(self, cmd, varargin{:});
+        return
+      end
+      if ~isa(self.private.serial,'serial') || ~isvalid(self.private.serial) 
+        disp([ mfilename ': write: Invalid serial port ' self.dev ]); return; 
+      end
       cmd = private_strcmp(self, cmd);  % identify command, as a struct array
       cout = '';
       if ~isfield(self.private,'bufferSent') self.private.bufferSent=[]; end
@@ -162,7 +172,14 @@ classdef stargo < handle
       
       % this can be rather slow as there are pause calls.
       % registering output may help.
-      if ~isvalid(self.private.serial), disp('read: Invalid serial port'); return; end
+      
+      if strncmp(self.dev, 'sim',3)
+        val = '';
+        return
+      end
+      if ~isa(self.private.serial,'serial') || ~isvalid(self.private.serial) 
+        disp([ mfilename ': read: Invalid serial port ' self.dev ]); return;
+      end
       
       % flush and get results back
       val = '';
@@ -204,7 +221,7 @@ classdef stargo < handle
         delete(self.private.timer); 
       end
       stop(self);
-      if isvalid(self.private.serial)
+      if isa(self.private.serial,'serial') && isvalid(self.private.serial) 
         fclose(self.private.serial);
       end
       close(h);
@@ -283,7 +300,7 @@ classdef stargo < handle
       % add:
       % X0AAUX1ST X0FAUX2ST FQ(full_abort) X3E0(full_abort) 
       write(self,{'abort','full_abort','set_stargo_off'});
-      disp([ '[' datestr(now) '] ' mfilename '.stop: ABORT.' ]);
+      disp([ '[' datestr(now) '] ' mfilename ': stop: ABORT.' ]);
       self.private.bufferSent = [];
       self.private.bufferRecv = '';
       self.private.shift_ra  = [];
@@ -310,7 +327,7 @@ classdef stargo < handle
       self.private.bufferRecv = '';
       pause(0.5);
       getstatus(self, 'full');
-      disp([ '[' datestr(now) '] ' mfilename '.start: Mount Ready.' ]);
+      disp([ '[' datestr(now) '] ' mfilename ': start: Mount Ready.' ]);
     end % start
     
     function ret=time(self, t0, cmd)
@@ -344,7 +361,7 @@ classdef stargo < handle
         t0(4) = t0(4) - self.UTCoffset;
       end
       if ~isnumeric(t0) || numel(t0) ~= 6
-        disp([ mfilename ': time: ERROR: invalid time specification. Should be e.g. t0=clock.'])
+        disp([ '[' datestr(now) '] ' mfilename ': ERROR: time: invalid time specification. Should be e.g. t0=clock.'])
         return
       end
       if any(strcmp(cmd, {'set_home_pos','set_sidereal_time'}))
@@ -382,7 +399,7 @@ classdef stargo < handle
         time(self, 'now','park');
         tracking(self, 'sidereal');
       end
-      disp([ '[' datestr(now) '] ' mfilename '.park: ' option ' returned ' ret ]);
+      disp([ '[' datestr(now) '] ' mfilename ': park: ' option ' returned ' ret ]);
     end % park
     
     function ret=unpark(self)
@@ -414,7 +431,7 @@ classdef stargo < handle
         end
         ret = queue(self, option);
       end
-      disp([ '[' datestr(now) '] ' mfilename '.home: ' ' returned ' ret ]);
+      disp([ '[' datestr(now) '] ' mfilename ': home: returned ' ret ]);
       getstatus(self);
     end % home
     
@@ -426,11 +443,11 @@ classdef stargo < handle
     function sync(self)
       % SYNC synchronise current RA/DEC with last target.
       if isempty(self.target_name)
-        disp([ mfilename ': WARNING: can not sync before defining a target with GOTO' ]);
+        disp([ '[' datestr(now) '] ' mfilename ': WARNING: can not sync before defining a target with GOTO' ]);
         return
       end
       write(self, 'sync');
-      disp([ '[' datestr(now) '] ' mfilename '.sync: OK for ' self.target_name ]);
+      disp([ '[' datestr(now) '] ' mfilename ': sync: OK for ' self.target_name ]);
     end % sync
     
     function ms=pulse(self, ms)
@@ -469,10 +486,10 @@ classdef stargo < handle
         else track=false; end
         return
       case {'on','off','lunar','sidereal','solar','none'}
-        disp([ mfilename ': tracking: set to ' track ]);
+        disp([ '[' datestr(now) '] ' mfilename ': tracking: set to ' track ]);
         write(self, [ 'set_tracking_' lower(strtok(track)) ]);
       otherwise
-        disp([ mfilename ': tracking: unknown option ' track ]);
+        disp([ '[' datestr(now) '] ' mfilename ': tracking: unknown option ' track ]);
       end
     end % tracking
     
@@ -542,7 +559,7 @@ classdef stargo < handle
       z = {'set_speed_guide','set_speed_center','set_speed_find','set_speed_max'};
       if any(level == 1:4)
         write(self, z{level});
-        disp([ '[' datestr(now) '] ' mfilename '.zoom: ' z{level} ]);
+        disp([ '[' datestr(now) '] ' mfilename ': zoom: ' z{level} ' [' num2str(level) ']']);
       end
 
     end % zoom
@@ -602,11 +619,11 @@ classdef stargo < handle
       if nargin < 2, ra  = []; end
       
       if ~isempty(self.private.shift_ra) || ~isempty(self.private.shift_dec)
-        disp([ mfilename ': WARNING: a shift is already on-going. Wait or abort with "stop".' ]);
+        disp([ '[' datestr(now) '] ' mfilename ': WARNING: a shift is already on-going. Wait or abort with "stop".' ]);
         return
       end
       if self.private.ra_move>1 || self.private.dec_move>1
-        disp([ mfilename ': WARNING: the mount is already moving. Wait or abort with "stop".' ]);
+        disp([ '[' datestr(now) '] ' mfilename ': WARNING: the mount is already moving. Wait or abort with "stop".' ]);
         return
       end
       
@@ -656,7 +673,7 @@ classdef stargo < handle
         self.target_name=target_name;
         getstatus(self); % also flush serial out buffer
         notify(self,'gotoStart');
-        disp([ mfilename ': initiating GOTO to ' self.target_name ]);
+        disp([ '[' datestr(now) '] ' mfilename ': initiating GOTO to ' self.target_name ]);
       end
     end % goto
     
@@ -673,7 +690,7 @@ classdef stargo < handle
       z0 = zoom(self);
       ra = self.private.ra_deg;
       dec= self.private.dec_deg;
-      disp([ mfilename ': Calibrating... do not interrupt (takes 10 secs).' ]);
+      disp([ '[' datestr(now) '] ' mfilename ': Calibrating... do not interrupt (takes 10 secs).' ]);
       stop(self); ra_dir='n'; dec_dir='e';
       for z=1:4
         zoom(self, z);
@@ -692,7 +709,7 @@ classdef stargo < handle
       end
       % restore current zoom level
       zoom(self, z0);
-      disp([ mfilename ': Calibration done.' ]);
+      disp([ '[' datestr(now) '] ' mfilename ': Calibration done.' ]);
       % move back to initial location
     end % calibrate
     
@@ -710,15 +727,15 @@ classdef stargo < handle
       if nargin < 3, delta_dec = []; end
       if any(strcmpi(delta_ra,{'stop','abort'})) stop(self); return; end
       if all(self.private.ra_speeds==0) || all(self.private.dec_speeds==0)
-        disp([ mfilename ': WARNING: First start a "calibrate" operation.' ]);
+        disp([ '[' datestr(now) '] ' mfilename ': WARNING: First start a "calibrate" operation.' ]);
         return
       end
       if ~isempty(self.private.shift_ra) || ~isempty(self.private.shift_dec)
-        disp([ mfilename ': WARNING: a shift is already on-going. Wait or abort with "stop".' ]);
+        disp([ '[' datestr(now) '] ' mfilename ': WARNING: a shift is already on-going. Wait or abort with "stop".' ]);
         return
       end
       if self.private.ra_move>1 || self.private.dec_move>1
-        disp([ mfilename ': WARNING: the mount is already moving. Wait or abort with "stop".' ]);
+        disp([ '[' datestr(now) '] ' mfilename ': WARNING: the mount is already moving. Wait or abort with "stop".' ]);
         return
       end
       if ischar(delta_ra),  delta_ra  = repradec(delta_ra);  end
@@ -757,8 +774,8 @@ classdef stargo < handle
       % the auto update will handle the move (calling update_shift)
       [h1,m1,s1] = angle2hms(self.private.shift_ra,  'hours');
       [h2,m2,s2] = angle2hms(self.private.shift_dec, 'from deg');
-      disp(sprintf('%s: shift: moving to RA=%d:%d:%.1f [%f deg] ; DEC=%d*%d:%.1f [%f deg]', ...
-        mfilename, h1,m1,s1, self.private.shift_ra, h2,m2,s2, self.private.shift_dec));
+      disp([ '[' datestr(now) '] ' mfilename sprintf(': shift: moving to RA=%d:%d:%.1f [%f deg] ; DEC=%d*%d:%.1f [%f deg]', ...
+        h1,m1,s1, self.private.shift_ra, h2,m2,s2, self.private.shift_dec) ]);
     end % shift
     
     % GUI and output commands --------------------------------------------------

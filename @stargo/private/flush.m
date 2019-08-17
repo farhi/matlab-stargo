@@ -1,8 +1,13 @@
 function str = flush(self)
   % FLUSH read the return values from device
-  if ~isvalid(self.private.serial), disp('flush: Invalid serial port'); return; end
-  com = self.private.serial;
+  
   str = '';
+  if strncmp(self.dev, 'sim',3), return; end
+  if ~isa(self.private.serial,'serial') || ~isvalid(self.private.serial) 
+    disp([ mfilename ': Invalid serial port ' self.dev ]); return;
+  end
+  
+  com = self.private.serial;
   while com.BytesAvailable
     str = [ str fscanf(com) ];
   end

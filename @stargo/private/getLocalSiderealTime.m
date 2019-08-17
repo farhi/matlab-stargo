@@ -30,5 +30,5 @@ function [LST, JD, GST] = getLocalSiderealTime(longitude, t0)
   LST = mod(LST, 360);  % LST range [0..360]
   fprintf('Local sidereal time                %6.4f [deg]\n',LST);
   [h,m,s] = angle2hms(LST);
-  fprintf('                                   %2d:%2d:%2d\n',h,m,s);
+  fprintf('                                   %2d:%2d:%2d\n',h,m,round(s));
 end % getLocalSiderealTime
