@@ -788,7 +788,7 @@ classdef stargo < handle
     end % char
     
     function display(self)
-      % DISPLAY display StarBook object (short)
+      % DISPLAY display StarGo object (short)
       
       if ~isempty(inputname(1))
         iname = inputname(1);
@@ -845,7 +845,7 @@ classdef stargo < handle
     end % plot
     
     function url = web(self, url)
-      % WEB display the starbook RA/DEC target in a web browser (sky-map.org)
+      % WEB display the StarGo RA/DEC location in a web browser (http://www.sky-map.org)
       self.getstatus;
       if nargin < 2
         url = sprintf([ 'http://www.sky-map.org/?ra=%f&de=%f&zoom=%d' ...

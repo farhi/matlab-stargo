@@ -101,7 +101,7 @@ function self = plot_catalogs(self)
 end % plot_catalogs
 
 function ButtonDownCallback(src, evnt)
-  % ButtonDownCallback: callback when user clicks on the StarBook image
+  % ButtonDownCallback: callback when user clicks on an object
 
   % get the SkyChart object handle
   h = findall(0, 'Tag','SkyChart_Axes');

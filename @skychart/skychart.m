@@ -41,11 +41,8 @@ classdef skychart < handle
   % where 'scope' should be an object with methods:
   %
   %   getstatus: read the mount status, and update the scope properties:
-  %              scope.ra.h, scope.ra.min, scope.dec.deg, scope.dec.min
-  %   gotoradec(RA,DEC): send the mount to location (RA,DEC)
-  %
-  % when scope is omitted, a connection with a Vixen StarBook is attempted. This
-  % controler can be set in 'simulate' mode.
+  %              scope.ra, scope.dec
+  %   goto(RA,DEC): send the mount to location (RA,DEC)
   %
   % Note: when behind a firewall, in order to get the initial GPS location, you may need to set
   %   ProxyHost='proxy.ill.fr'; % Proxy address if you are behind a proxy [e.g. myproxy.mycompany.com or empty]
@@ -117,7 +114,15 @@ classdef skychart < handle
   
   methods
     function sc = skychart(varargin)
-    
+      % SKYCHART create a SkyChart View.
+      %   SKYCHART alone creates a view.
+      %
+      %   SKYCHART('Property', value, ...) specifies how to create the View.
+      %   SKYCHART('figure',f) inserts the SkyChart view into the given figure.
+      %   SKYCHART('axes',a)   inserts the SkyChart view into the given axes.
+      %   SKYCHART('location',[ longitude latitude ]) specifies the GPS 
+      %   location in [deg].
+      
       % handle input name/value argument pairs
       flag_set_location = false;
       if mod(nargin,2) == 0 % name/value pairs
@@ -133,15 +138,16 @@ classdef skychart < handle
             sc.catalogs = varargin{index+1};
           case {'location','site','place'}
             sc.place = varargin{index+1};
-            flag_set_location = true;
           end
         end
       end
       
-      sc.catalogs = getcatalogs;
+      if isempty(sc.catalogs)
+        sc.catalogs = getcatalogs;
+      end
       
       % populate with starting stuff
-      if ~flag_set_location, getplace(sc); end
+      if isempty(sc.place), getplace(sc); end
       
       % update all and compute Alt/Az, X/Y coordinates
       compute(sc, 'now');
@@ -157,18 +163,12 @@ classdef skychart < handle
     end % skychart
    
     function getplace(self, sb)
-      % getplace(sc): get the location
-      % getplace(sc, [lon lat]): set location in deg
-      % getplace(sc, starbook): set location from StarBook
-      if nargin > 1 && isa(sb, 'starbook')
-        p = sb.place;
-        e = double(p{2})+double(p{3})/60;
-        if p{1} == 'W', e=-e; end
-        n = double(p{5})+double(p{6})/60;
-        if p{4} == 'S', n=-n; end
-        self.place = [ n e ];
-        disp([ mfilename ': Using location from Vixen StarBook [long lat]=' mat2str(self.place) ]);
-      elseif nargin > 1 && isnumeric(sb) && numel(sb) == 2
+      % GETPLACE get the current location
+      %   GETPLACE(sc) requests location from the Network.
+      %
+      %   GETPLACE(sc, [lon lat]) sets location given in degrees.
+
+      if nargin > 1 && isnumeric(sb) && numel(sb) == 2
         self.place = sb;
       else % use ip-api to get the location from the IP
         try
@@ -184,8 +184,10 @@ classdef skychart < handle
     end % getplace
    
     function d=date(self, utc)
-      % date(sc):      get the current UTC
-      % date(sc, UTC): sets the date as given UTC
+      % DATE get the current UTC date.
+      %   DATE(sc) sets the current time from the clock.
+      %
+      %   DATE(sc, UTC) sets the date as given UTC (string, number, vector).
       if nargin > 1 && ~isempty(utc)
         if strcmp(utc, 'now')
           self.utc = local_time_to_utc(now);
@@ -206,10 +208,14 @@ classdef skychart < handle
     end % date
     
     function ret = compute(self, utc)
-      % compute(sc):          compute and update all catalogs
-      % compute(sc, utc):     the same, but for a given UTC
-      % compute(sc, 'now'):   update UTC to now, and force compute
-      % compute(sc, 'force'): force to compute for previously set date/time
+      % COMPUTE compute position of objects for all catalogs.
+      %   COMPUTE(sc) updates only when time has changed significantly (2 min).
+      %
+      %   COMPUTE(sc, utc)     the same, but for a given UTC.
+      %
+      %   COMPUTE(sc, 'now')   update UTC to now, and force computation.
+      %
+      %   COMPUTE(sc, 'force') force to compute for previously set date/time.
       
       if nargin < 2, utc = []; end
     
@@ -264,7 +270,12 @@ classdef skychart < handle
     end % compute
     
     function h = plot(self, force)
-      % plot(sc): plot the sky chart
+      % PLOT plot the sky chart.
+      %   PLOT(s) plot the skyview when axes limits have changed. Any attached 
+      %   Scope coordinates are also shown (red cross/circle).
+      %
+      %   PLOT(s,'force') force to re-plot the skyview. Any defined list of objects
+      %   is also shown (white X).
       
       h = [];
       if self.plotting, return; end
@@ -313,21 +324,32 @@ classdef skychart < handle
     end % plot
     
     function close(self)
-      % close(sc): close skychart
-      if ~isempty(self.timer) && isvalid(self.timer)
-        stop(self.timer); 
+      % CLOSE close skychart.
+      if isa(self.timer, 'timer') && isvalid(self.timer)
+        stop(self.timer); delete(self.timer);
       end
       if ~isempty(self.figure) && ishandle(self.figure) && ~self.figure_insert, delete(self.figure); end
       self.figure = []; self.axes = []; self.plotting = false;
     end
     
+    function delete(self)
+      % DELETE deletes the SkyChart object
+      close(self);
+    end % delete
+    
     function found = findobj(self, name)
-      % findobj(sc, name): find a given object in catalogs. Select it.
+      % FINDOBJ search for an object (star, DSO, planet) in catalogs.
+      %   FINDOBJ(sc, name) search for a given object in catalogs. Select it.
+      %   The found object is returned as a structure.
+      %
+      %   FINDOBJ(sc) opens a Dialogue to enter the nameof an object to search.
       catalogs = fieldnames(self.catalogs);
       found = [];
       
       if nargin < 2
-        prompt = {'{\color{blue}Enter a Star/Object Name} e.g. Betelgeuse, M 42, NGC 224, Venus. Use spaces between Catalog Name and ID. Known Catalogs include: Planets, StarID, HD, HR, M, NGC, IC, ...'};
+        prompt = { '{\color{blue}Enter a Star/Object Name} e.g. Betelgeuse, M 42, NGC 224, Venus.', ...
+          'Use spaces between Catalog Name and ID.', ...
+          'Known Catalogs include: Planets, StarID, HD, HR, Messier, NGC, IC, ...' };
         name = 'SkyChart: Find Object';
         options.Resize='on';
         options.WindowStyle='normal';
@@ -413,7 +435,7 @@ classdef skychart < handle
     end
     
     function url=help(self)
-      % help(sb): open the Help page
+      % HELP open the SkyChart Help page.
       url = fullfile('file:///',fileparts(which(mfilename)),'doc','SkyChart.html');
       open_system_browser(url);
     end
@@ -421,7 +443,7 @@ classdef skychart < handle
     % scope methods ------------------------------------------------------------
     
     function connect(self, sb)
-      % connect(sc): connect to a Vixen StarBook scope controller
+      % CONNECT connect the SkyChart to a scope controller.
       if ~isempty(self.telescope) && isvalid(self.telescope)
         disp([ mfilename ': Scope is already connected.' ])
         plot(self.telescope);
@@ -434,9 +456,12 @@ classdef skychart < handle
     end % connect
     
     function goto(self, varargin)
-      % goto(sc, ra, dec): send scope to given location
-      %   ra  is given in hh:mm:ss
-      %   dec is given in deg:min
+      % GOTO send the scope to given object/coordinates
+      %   GOTO(sc, ra, dec) send scope to given location
+      %     ra  is given in hh:mm:ss or DEG
+      %     dec is given in deg:min or DEG
+      %
+      %   GOTO(sc) send the scope to the last Selected object, e.g. after a search.
       if nargin ==1
         if isfield(self.selected, 'RA') && isfield(self.selected, 'DEC')
           RA = self.selected.RA;
@@ -455,9 +480,13 @@ classdef skychart < handle
     % list/planning methods ----------------------------------------------------
     
     function l = listAdd(self, RA, DEC, name)
-      % listAdd(sc): add the last selected object to the List
-      % listAdd(sc, name): search for name and add it to the List
-      % listAdd(sc, RA,DEC, {name}): add RA/DEC to the List
+      % listAdd ad an object to the List of planned observations.
+      %   listAdd(sc) add the last selected object to the List.
+      %
+      %   listAdd(sc, name) search for name and add it to the List.
+      %
+      %   listAdd(sc, RA,DEC, {name}) add RA/DEC (in deg) to the List. 
+      %   The name of the object can optionally be given.
       if nargin > 1
         if ischar(RA)
           self.selected = findobj(self, RA);
@@ -485,7 +514,8 @@ classdef skychart < handle
     end % listAdd
     
     function listClear(self)
-      % listClear(sc): clear the List
+      % listClear clear the List
+      %   listClear(sc)
       self.list = [];
       if ishandle(self.figure)
         plot(self, 1);
@@ -493,7 +523,9 @@ classdef skychart < handle
     end % listClear
     
     function l=listShow(self)
-      % listShow(sc): show the current List
+      % listShow show the current List in a Dialogue window.
+      %   listShow(sc)
+      %   The Dialogue allows to select objects and remove them.
       
       ListString = {};
       for index=1:numel(self.list)
@@ -520,13 +552,16 @@ classdef skychart < handle
     end % listShow
     
     function listRun(self)
-      % listRun(sc): start to execute a list of GOTO's
+      % listRun start to execute a list of GOTO's
+      %   listRun(sc)
       self.list_start = true;
     end % listRun
     
     function listPeriod(self, dt)
-      % listPeriod(sc): dialogue to change the List period (sc.list_period in [s]) 
-      % listPeriod(sc, dt): set the List period to dt [s]
+      % listPeriod open dialogue to change the List period (in [s]) 
+      %   listPeriod(sc) open the dialogue.
+      %
+      %   listPeriod(sc, dt) set the List period to dt [s]
       if nargin > 1
         self.list_period = dt;
       else
@@ -545,11 +580,14 @@ classdef skychart < handle
     end % listPeriod
     
     function l=listGrid(self, RA, DEC, n, da)
-      % listGrid(sc): build a 3x3 grid around selection with step 0.75 deg.
-      % listGrid(sc, RA, DEC, n, da): build a n x n grid around RA/DEC with angular step da
-      % listGrid(sc, name   , n, da): build a n x n grid around named object
+      % listGrid build a grid of observations around an object for e.g. stitching.  
+      %   listGrid(sc) build a 3x3 grid around selection with step 0.75 deg.
       %
-      %   The grid size can be given as n = [nDEC nRA] to specify a non-square grid
+      %   listGrid(sc, RA, DEC, N, da) build a N x N grid around RA/DEC with angular step da.
+      %
+      %   listGrid(sc, name   , N, da) build a N x N grid around named object.
+      %
+      %   The grid size can be given as N = [nDEC nRA] to specify a non-square grid
       %   as well as similarly for the angular step da = [dDEC dRA]
       %
       %   The angular step should be e.g. the field of view (FOV) in order to 
@@ -561,7 +599,6 @@ classdef skychart < handle
       %     FOV = 0.74 and 1.12 [deg]
       %   With a 400 mm focal length and similar sensor:
       %     FOV = 2.23 and 3.36 [deg]
-      %     
       
       l = [];
       
@@ -610,8 +647,9 @@ classdef skychart < handle
     end % listGrid
     
     function l=grid(self, varargin)
-      % grid: build a grid around current selection
-      l=self.listGrid(self, varargin{:});
+      % GRID build a grid around current selection
+      %   GRID(s, ...) is equivalent to listGrid.
+      l=listGrid(self, varargin{:});
     end
    
   end % methods
