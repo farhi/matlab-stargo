@@ -10,6 +10,7 @@ function plot_telescope(self)
   % first remove any previous pointer
     delete(findobj(self.figure, 'Tag','SkyChart_Pointer1'));
     delete(findobj(self.figure, 'Tag','SkyChart_Pointer2'));
+    delete(findobj(self.figure, 'Tag','SkyChart_Line'));
     
   % get the scope location
   RA = []; DEC=[];
@@ -32,5 +33,24 @@ function plot_telescope(self)
     % the plot the pointer at scope location (cross + circle), 0.5 deg
     plot(X,Y, 'ro', 'MarkerSize', 20, 'Tag','SkyChart_Pointer1'); 
     plot(X,Y, 'r+', 'MarkerSize', 20, 'Tag','SkyChart_Pointer2');
+    
+    % we also draw a line when the target is defined, so that we can see where we go
+    if ~isempty(self.telescope.target_name) && strcmp(self.telescope.status,'MOVING')
+      target_ra_deg = hms2angle(self.telescope.target_ra)*15; % in deg
+      target_dec_deg= hms2angle(self.telescope.target_dec); % in deg
+      [tAz, tAlt] = radec2altaz(target_ra_deg, target_dec_deg, self.julianday, self.place);
+      [tX, tY]    = pr_stereographic_polar(tAz+90, tAlt);
+      line([ X tX ], [ Y tY ], 'LineStyle','--','Color','r','Tag','SkyChart_Line');
+    end
   end
+  
+
 end % plot_telescope
+
+function ang = hms2angle(h,m,s)
+  % hms2angle convert hh:mm:ss to an angle in [deg]
+  if nargin == 1 && numel(h) == 3
+    m = h(2); s=h(3); h=h(1);
+  end
+  ang = double(h) + double(m)/60 + double(s)/3600;
+end % hms2angle

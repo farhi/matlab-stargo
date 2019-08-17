@@ -91,6 +91,7 @@ classdef skychart < handle
     list_period = 1800;   % time between list/planning GOTO actions
     plotting  = false;
     UserData  = [];
+    update_counter = 0;
     
     % catalogs is a struct array of single catalog entries.
     % Each named catalog entry has fields:
@@ -427,7 +428,7 @@ classdef skychart < handle
         return
       end
       if nargin > 1
-        disp([ mfilename ': connecting Scope to SkyChart' ]);
+        disp([ mfilename ': Connecting Scope to SkyChart' ]);
         self.telescope = sb;
       end
     end % connect
@@ -440,7 +441,7 @@ classdef skychart < handle
         if isfield(self.selected, 'RA') && isfield(self.selected, 'DEC')
           RA = self.selected.RA;
           DEC= self.selected.DEC;
-          varargin = { RA, DEC };
+          varargin = { self.selected };
         else return; end
       end
       if isobject(self.telescope) && isvalid(self.telescope) && ismethod(self.telescope, 'goto')
@@ -656,9 +657,20 @@ function TimerCallback(src, evnt)
   
   if isvalid(sc), 
     % update: compute and plot
-    compute(sc);
-    if ~isempty(sc.figure) && ishandle(sc.figure) && ishandle(sc.axes)
-      plot(sc);
+    sc.update_counter = sc.update_counter + 1;
+    % do we need full update ?
+    if sc.update_counter > sc.update_period % every 10 min
+      sc.update_counter = 0;
+      compute(sc,'force');
+      if ~isempty(sc.figure) && ishandle(sc.figure) && ishandle(sc.axes)
+        plot(sc,1);
+      end
+    else
+      % fast update
+      compute(sc);
+      if ~isempty(sc.figure) && ishandle(sc.figure) && ishandle(sc.axes)
+        plot(sc);
+      end
     end
     
     % look if we are running a list
