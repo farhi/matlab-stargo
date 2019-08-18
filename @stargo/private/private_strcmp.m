@@ -19,7 +19,7 @@ function out = strcmp(self, in)
     if numel(tok) == 1
       out = [ out self.commands(tok) ];
     else
-      % disp([ '[' datestr(now) '] WARNING: ' mfilename '.strcmp: can not find command ' this_in ' in list of available ones.' ]);
+      disp([ '[' datestr(now) '] WARNING: ' mfilename '.strcmp: can not find command ' this_in ' in list of available ones.' ]);
       out1.name = 'custom command';
       out1.send = this_in;
       out1.recv = '';

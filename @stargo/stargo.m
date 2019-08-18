@@ -35,7 +35,9 @@ classdef stargo < handle
   % to balance the RA axis. Also make sure the scope is roughly aligned with the Pole scope.
   %
   % **Polar alignment and initial set-up**
-  % The Polar alignment is an essential step. 
+  % The Polar alignment is an essential step. It is defined as the HOME position, 
+  % pointing towards the Pole.
+  %
   % Point the North Pole with the scope, the DEC axis pointing down (scope on the top). 
   % For the alignment, use Stellarium (https://stellarium.org/) 
   % and display e.g. the North Pole. Display the Equatorial coordinate grid, and 
@@ -87,8 +89,8 @@ classdef stargo < handle
   properties
     dev       = '';       % The serial port, e.g. COM1, /dev/ttyUSB0
     version   = '';       % The version of the StarGo board
-    longitude = 48.5;     % The current observation longitude (in deg)
-    latitude  = 2.33;     % The current observation latitude (in deg)
+    longitude = 2.33;     % The current observation longitude (in deg)
+    latitude  = 48.5;     % The current observation latitude (in deg)
     UTCoffset = [];       % The UTC offset (time-zone, daylight saving) in hours.
     UserData  = [];       % Open for any further storage from User
     
@@ -175,11 +177,12 @@ classdef stargo < handle
       start(sb); % make sure we start with a known configuration
       disp([ '[' datestr(now) '] ' mfilename ': ' sb.version ' connected to ' sb.dev ]);
       
-      place = getplace; % location guess from the network
-      if ~isempty(place) && isscalar(sb.longitude) && isscalar(sb.latitude)
-        if abs(place(1)-sb.longitude) > 1 || abs(place(2)-sb.latitude) > 1
-          disp([ '[' datestr(now) '] WARNING: ' mfilename ': the controller location ' ...
-            mat2str([ sb.longitude sb.latitude ]) ' [deg] does not match that guessed from the Network ' mat2str(place) ]);
+      pl = place(sb, 'network'); % location guess from the network
+      if ~isempty(pl) && isscalar(sb.longitude) && isscalar(sb.latitude)
+        if abs(pl(1)-sb.longitude) > 1 || abs(pl(2)-sb.latitude) > 1
+          disp([ '[' datestr(now) '] WARNING: ' mfilename ': the controller location [long,lat]=' ...
+            mat2str([ sb.longitude sb.latitude ],4) ...
+            ' [deg] does not match that guessed from the Network ' mat2str(pl,4) ]);
           disp('  *** Check StarGo Settings ***')
         end
       end
@@ -222,7 +225,7 @@ classdef stargo < handle
           || (numel(varargin) == 1 && isnumeric(varargin{1}) && argin == numel(varargin{1}))
           c = sprintf(cmd(index).send, varargin{:});
           if self.verbose
-            disp( [ mfilename '.write: ' cmd(index).name ' "' c '"' ]);
+            fprintf(1, [ c ' [' cmd(index).name ']' ]);
           end
           fprintf(self.private.serial, c); % SEND
           cout = [ cout c ];
@@ -231,7 +234,7 @@ classdef stargo < handle
             self.private.bufferSent = [ self.private.bufferSent cmd(index) ]; 
           end
         else
-          disp([ '[' datestr(now) '] WARNING: ' mfilename '.write: command ' cmd(index).send ...
+          disp([ '[' datestr(now) '] WARNING: ' mfilename ': write: command ' cmd(index).send ...
             ' requires ' num2str(argin) ' arguments but only ' ...
             num2str(numel(varargin)) ' are given.' ]);
         end
@@ -274,11 +277,11 @@ classdef stargo < handle
       val = strtrim(strrep(val, '#',' '));
       val = strtrim(strrep(val, '  ',' '));
       if self.verbose
-        disp([ mfilename '.read ' val ]);
+        fprintf(1, val);
       end
     end % read
     
-    function val = queue(self, cmd, varargin)
+    function [recv, sent] = queue(self, cmd, varargin)
       % QUEUE Send a single command, returns the answer.
       %   val = QUEUE(s, cmd, ...) sends 'cmd' with optional arguments and return
       %   the mount messages. Commands can be given as encoded strings, or symbolic
@@ -286,8 +289,8 @@ classdef stargo < handle
       %
       %   val = QUEUE(s, {cmd1, cmd2, ...}) sends multiple commands.
       if nargin == 1, val = read(self); return; end
-      write(self, cmd, varargin{:});
-      [val, self] = read(self);
+      sent = write(self, cmd, varargin{:});
+      [recv, self] = read(self);
     end % queue
         
     function delete(self)
@@ -321,21 +324,25 @@ classdef stargo < handle
       if nargin == 1, option = ''; end
       if isempty(option), option='short'; end
       
-      switch option
-      case {'long','full','all'}
-        list = { 'get_radec', 'get_motors', 'get_site_latitude', 'get_site_longitude', ...
-          'get_st4', 'get_alignment', 'get_keypad', 'get_meridian', 'get_park', ...
-          'get_system_speed_slew', 'get_autoguiding_speed', 'get_sideofpier','get_ra','get_dec', ...
-          'get_meridian_forced','get_torque','get_precision','get_unkown_x1b','get_motor_status'};
-        option = 'full';
-        % invalid: get_localdate get_locattime get_UTCoffset get_tracking_freq
-      otherwise % {'short','fast'}
-        list = {'get_radec','get_motors','get_ra','get_dec','get_motor_status'};
-        option = 'short';
+      if ischar(option)
+        switch option
+        case {'long','full','all'}
+          list = { 'get_radec', 'get_motors', 'get_site_latitude', 'get_site_longitude', ...
+            'get_st4', 'get_alignment', 'get_keypad', 'get_meridian', 'get_park', ...
+            'get_system_speed_slew', 'get_autoguiding_speed', 'get_sideofpier','get_ra','get_dec', ...
+            'get_meridian_forced','get_torque','get_precision','get_unkown_x1b','get_motor_status'};
+          option = 'full';
+          % invalid: get_localdate get_locattime get_UTCoffset get_tracking_freq
+        case {'short','fast'}
+          list = {'get_radec','get_motors','get_ra','get_dec','get_motor_status'};
+          option = 'short';
+        end
+      elseif iscellstr(option)
+        list = option;
       end
       
       % auto check for some wrong values
-      if strcmp(option, 'short')
+      if ischar(option) && strcmp(option, 'short')
         if ~isfield(self.state, 'get_alignment') || ~iscell(self.state.get_alignment) ...
            || numel(self.state.get_alignment{1}) ~= 1 || ~ischar(self.state.get_alignment{1})
           list{end+1} = 'get_alignment';
@@ -439,8 +446,8 @@ classdef stargo < handle
       % normal sequence: 
       % X46r(get) X38(get_park) X22(get_autoguiding_speed) TTGM(set) TTGT(get_torque) X05(get_precision)
       % TTGHS(set) X1B TTSFG(set) X3C(get_motor_status) X3E1(set_stargo_on) Gt Gg
-      queue(self, {'get_unkown_x46r','get_park','get_autoguiding_speed',':TTGM#','get_torque', ...
-        'get_precision',':TTGHS#','get_unkown_x1b',':TTSFG#','get_motor_status','set_stargo_on', ...
+      queue(self, {'get_unkown_x46r','get_park','get_autoguiding_speed','set_unknown_ttgm','get_torque', ...
+        'get_precision','set_unknown_ttghs','get_unkown_x1b','set_unknown_ttsfg','get_motor_status','set_stargo_on', ...
         'get_site_latitude','get_site_longitude', ...
         'set_speed_guide','set_tracking_sidereal','set_tracking_on', ...
         'set_highprec', 'set_keypad_on', 'set_st4_on','set_system_speed_slew_fast'});
@@ -448,9 +455,67 @@ classdef stargo < handle
       self.private.bufferSent = [];
       self.private.bufferRecv = '';
       pause(0.5);
-      getstatus(self, 'full');
+      list = { 'get_radec', 'get_motors', ...
+            'get_st4', 'get_alignment', 'get_keypad', 'get_meridian', ...
+            'get_system_speed_slew', 'get_sideofpier','get_ra','get_dec', ...
+            'get_meridian_forced'};
+      getstatus(self, list);
+      
       disp([ '[' datestr(now) '] ' mfilename ': start: Mount Ready.' ]);
     end % start
+    
+    function pl = place(self, longitude, latitude)
+      % PLACE Set/get the site location.
+      %   PLACE(s) reads the [longitude latitude] in deg from the mount.
+      %
+      %   PLACE(s, 'network') reads the [longitude latitude] in deg from the 
+      %   network (http://ip-api.com/json).
+      %
+      %   PLACE(s, long, lat) sets longitude and latitude, given in either degrees
+      %   of as [HH MM SS] vectors.
+      
+      if nargin == 1
+        getstatus(self, {'get_site_latitude','get_site_longitude'});
+        pl = [ self.longitude self.latitude ]; % set from getstatus
+        return
+      end
+      if nargin < 3, latitude  = ''; end
+      
+      if ischar(longitude) && strcmp(longitude, 'network')
+        pl = getplace;
+        return
+      end
+      
+      if ~isempty(longitude) && isempty(latitude) && numel(longitude) == 2
+        latitude = longitude(2);
+        longitude= longitude(1);
+      end
+      pl = [];
+      
+      if ~isempty(longitude)
+        if isscalar(longitude)
+          [d,m,s] = angle2hms(longitude,'deg');
+          longitude = round([ d m s ]);
+        end
+        [val1,s1] = queue(self, 'set_site_longitude', longitude); % Sg
+        disp([ '[' datestr(now) ']: ' mfilename ': setting longitude ' mat2str(longitude,2) ': ' s1 ' ' val1 ])
+        pause(0.1);
+        pl = [ pl hms2angle(longitude) ];
+      end
+      
+      if ~isempty(latitude)
+        if isscalar(latitude)
+          [d,m,s] = angle2hms(latitude,'deg');
+          latitude = round([ d m s ]);
+        end
+        [val2,s2] = queue(self, 'set_site_latitude', latitude);  % St
+        disp([ '[' datestr(now) ']: ' mfilename ': setting latitude ' mat2str(latitude,2) ': ' s2 ' ' val2 ])
+        pause(0.1);
+        pl = [ pl hms2angle(latitude) ];
+      end
+      
+      
+    end % place
     
     function ret=time(self, t0, cmd)
       % TIME Set the local sidereal time (LST)
@@ -489,10 +554,10 @@ classdef stargo < handle
       if any(strcmp(cmd, {'set_home_pos','set_sidereal_time'}))
         LST = getLocalSiderealTime(self.longitude, t0);
         [h,m,s] = angle2hms(LST);
-        ret = queue(self, cmd,h,m,s);
+        ret = queue(self, cmd,round([h m s]));
       else
-        write(self, 'set_date', t0(1:3));
-        write(self, 'set_time', t0(4:6));
+        write(self, 'set_date', round(t0(1:3)));
+        write(self, 'set_time', round(t0(4:6)));
       end
       
     end % time
@@ -535,40 +600,69 @@ classdef stargo < handle
       %
       %   HOME(s,'home') is the same as above (send to home position).
       %
-      %   HOME(s,'set') sets HOME position as the current position.
+      %   HOME(s,'set') sets HOME position as the current position (pointing Pole).
       %
       %   HOME(s,'get') gets HOME position status, and returns '1' when in HOME.
       
-      % set/sync home: set_site_longitude set_site_latitude X31%02d%02d%02d(set_home_pos) X351
+      % set/sync home: set_site_longitude set_site_latitude X31%02d%02d%02d(set_home_pos,LST) X351
       % goto home: X361(home) X120(set_tracking_off) X32%02d%02d%02d
       if nargin < 2, option = 'home'; end
-      if     strcmpi(option, 'set'), option = 'set_home_pos';
-      elseif strcmpi(option, 'get'), option = 'get_park'; end
+      if     any(strcmpi(option, {'set','sync','define'})), option = 'set_home_pos';
+      elseif any(strcmpi(option, {'goto'})),       option = 'home';
+      elseif strcmpi(option, 'get'),               option = 'get_park'; end
+      
       if strcmp(option, 'set_home_pos')
-        ret = time(self, 'now', 'home');
-        ret = [ ret queue(self, ':X351#') ]; 
+        % set longitude
+        val3 = time(self, 'now', 'home');              % X31(lst), this sets DEC=90
+        pause(0.1);
+        ret = [ val3 ' ' queue(self, 'set_unknown_x351') ];
+      elseif strcmp(option, 'home')
+        write(self, {'abort','abort'});
+        ret = queue(self, 'home');                    % X361
+        if ~strcmpi(self.status, 'HOME') notify(self, 'moving'); end
+        write(self, 'set_tracking_off');              % X120
+        pause(0.5);
+        time(self, 'now', 'set_sidereal_time');       % X32
+        
       else
-        if strcmpi(option,'home')
-          if ~strcmpi(self.status, 'HOME') notify(self, 'moving'); end
-        end
         ret = queue(self, option);
+        getstatus(self);
       end
-      disp([ '[' datestr(now) '] ' mfilename ': home: returned ' ret ]);
-      getstatus(self);
+      disp([ '[' datestr(now) '] ' mfilename ': home: ' option ' returned ' ret ]);
+      
     end % home
     
-    function align(self)
+    function align(self, varargin)
       % ALIGN Synchronise current RA/DEC with last target (sync).
-      sync(self);
+      %   ALIGN(s) tells the mount that the target object corresponds with the 
+      %   previously defined target (from GOTO).
+      %
+      %   ALIGN(s, 'pole') tells the mount that the Pole is aligned.
+      sync(self, varargin{:});
     end % align
     
     function sync(self)
       % SYNC Synchronise current RA/DEC with last target.
-      if isempty(self.target_name)
-        disp([ '[' datestr(now) '] ' mfilename ': WARNING: can not sync before defining a target with GOTO' ]);
-        return
+      %   SYNC(s) tells the mount that the target object corresponds with the 
+      %   previously defined target (from GOTO).
+      %
+      %   SYNC(s, 'pole') tells the mount that it is aligned on the Pole.
+      
+      if nargin < 2, option=''; end
+      if strcmpi(option, 'pole')
+        home(self, 'set');
+        pause(0.5);
+        goto(self, 'current');
+        self.target_name = 'Pole';
+        sync(self);
+      else
+        % align/sync on GOTO
+        if isempty(self.target_name)
+          disp([ '[' datestr(now) '] ' mfilename ': WARNING: can not sync before defining a target with GOTO' ]);
+          return
+        end
+        write(self, 'sync');
       end
-      write(self, 'sync');
       disp([ '[' datestr(now) '] ' mfilename ': sync: OK for ' self.target_name ]);
     end % sync
     
@@ -709,6 +803,7 @@ classdef stargo < handle
       end
       if nargin == 3 && msec > 0
         if msec > 9999, msec=9999; end
+        msec = round(msec);
         cmd = [ 'set_pulse_' dirs{index} ];
         write(self, cmd, msec);
       elseif nargin >= 2
@@ -772,6 +867,9 @@ classdef stargo < handle
       if     ischar(ra) && strcmpi(ra, 'home'), home(self); return;
       elseif ischar(ra) && strcmpi(ra, 'park'), park(self); return;
       elseif ischar(ra) && strcmpi(ra, 'stop'), stop(self); return;
+      elseif ischar(ra) && strcmpi(ra, 'current')
+        ra = self.state.get_ra;
+        dec= self.state.get_dec;
       end
       if ischar(ra) && ~any(ra(1) == '0123456789+-')
         found = findobj(self, ra);
@@ -1046,6 +1144,7 @@ function c = getcommands
     'get_manufacturer',             'GVP',        '%s','manufacturer';
     'get_meridian_forced',          'TTGFd',      'vd%1d','query meridian flip forced(TF)';
     'get_meridian',                 'TTGFs',      'vs%d','query meridian flip(TF)';  
+    'get_motor_status',             'X3C',        ':Z1%1d%1d%1d','query motor status [motors=OFF,DEC,RA,all_ON;track=OFF,Moon,Sun,Star;speed=Guide,Center,Find,Max]';
     'get_motors',                   'X34',        'm%1d%1d','query motors state(0:5==stop,tracking,accel,decel,lowspeed,highspeed)'; 
     'get_park',                     'X38',        'p%s','query tracking state(0=unparked,1=homed,2=parked,A=slewing,B=slewing2park)';   
     'get_precision',                'X05',        '%s','query precision, returns "U"';
@@ -1062,7 +1161,6 @@ function c = getcommands
     'get_unkown_x29',               'X29',        'TCB=%d.','query X29, returns TCB';
     'get_unkown_x461',              'X461',       'c%1d','query X461, e.g. "c1"';
     'get_unkown_x46r',              'X46r',       'c%1d','query X46r, e.g. "c1"';
-    'get_motor_status',             'X3C',        ':Z1%1d%1d%1d','query motor status [motors=OFF,DEC,RA,all_ON;track=OFF,Moon,Sun,Star;speed=Guide,Center,Find,Max]';
     'set_altaz',                    'AA',         '',     'set to alt/az mode (RESET board)';
     'set_autoguiding_speed_dec',    'X21%02d',    '',     'set auto guiding speed on DEC (xx for 0.xx %)';
     'set_autoguiding_speed_ra',     'X20%02d',    '',     'set auto guiding speed on RA (xx for 0.xx %)';
@@ -1096,8 +1194,8 @@ function c = getcommands
     'set_ramp_radec',               'X06%03d%03d','','set Ramp Acceleration Value (ra,dec, e.g. 3 or 5)';
     'set_reverse_radec',            'X1A%1d%1d',  '','set RA/DEC reverse direction';
     'set_sidereal_time',            'X32%02d%02d%02d','','set local sidereal time(hh,mm,ss) at park';
-    'set_site_latitude',            'St%+03d*%02d:%02d#Gt', '','set site latitude(dd,mm,ss)'; 
-    'set_site_longitude',           'Sg%+04d*%02d:%02d#Gg', '','set site longitude(dd,mm,ss)'; 
+    'set_site_latitude',            'St%+03d*%02d:%02d', '','set site latitude(dd,mm,ss)'; 
+    'set_site_longitude',           'Sg%+04d*%02d:%02d', '','set site longitude(dd,mm,ss)'; 
     'set_speed_guide',              'RG',         '','set slew speed guide (1/4)';
     'set_speed_center',             'RC',         '','set slew speed center (2/4)';     
     'set_speed_find',               'RM',         '','set slew speed find (3/4)';     
@@ -1135,6 +1233,12 @@ function c = getcommands
     'set_tracking_solar',           'X123#:TS',         '','set tracking solar';
     'set_torque',                   'TTT%03d',    '','set motor torque (e.g. x=50 or 70, BEWARE; RESET board)';
     'set_UTCoffset',                'SG %+03d',   '','set UTC offset(hh)';
+    'set_unknown_x280300',          'X280300',    '','set unknown X280300, return 0';
+    'set_unknown_x280303',          'X280303',    '','set unknown X280300, return 0';
+    'set_unknown_ttgm',             'TTGM',       '','set unknown TTGM, return 1';
+    'set_unknown_ttsfg',            'TTSFG',      '','set unknown TTSFG, return 0';
+    'set_unknown_ttghs',            'TTGHS',      '','set unknown TTGHS, return nothing';
+    'set_unknown_x351',             'X351',       '','set unknown X351, return 0';
     'abort',                        'Q',          '','abort current move'; 
     'full_abort',                   'FQ',         '','full abort/stop';
     'home',                         'X361',       '','send mount to home (pA)';
@@ -1155,14 +1259,9 @@ function c = getcommands
     'get_tracking_freq',            'GT',         '%f','invalid:query tracking frequency';
     'get_UTCoffset',                'GG',         '%f','invalid:query UTC offset';
   };
-  % other unkown commands when loading MCF: 
-  % X280300 returns 0
-  % X280303 returns 0
+  % other unknown commands when loading MCF: 
   % TTSMs0??>:><;8 returns 0
   % TTSMs1????;?<5 returns 0
-  % TTGM
-  % TTGHS
-  % TTSFG
   c = [];
   for index=1:size(commands,1)
     this = commands(index,:);

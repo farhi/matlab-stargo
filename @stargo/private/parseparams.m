@@ -9,7 +9,8 @@ function [p,self] = parseparams(self)
   
   % check if we have a Z1 status string in received buffer
   toremove = [];
-  allSent = self.private.bufferSent; 
+  allSent = self.private.bufferSent;
+  [ allSent.name ];
   % we search for a pattern in sent that matches the actual recieved string
   for indexR=1:numel(recv)
     if isempty(recv{indexR}), continue; end

@@ -86,7 +86,8 @@ function config = settings_apply(self, fig, config0)
         config.longitude = [ d m s ];
       end
       if numel(config.longitude) == 3
-        write(self, 'set_site_longitude', config.longitude);
+        queue(self, 'set_site_longitude', round(config.longitude));
+        pause(0.1)
         if isobject(self.private.skychart)
           sc = self.private.skychart;
           sc.place(1) = hms2angle(config.longitude);
@@ -99,7 +100,8 @@ function config = settings_apply(self, fig, config0)
         config.latitude = [ d m s ];
       end
       if numel(config.latitude) == 3
-        write(self, 'set_site_latitude', config.latitude);
+        queue(self, 'set_site_latitude', round(config.latitude));
+        pause(0.1)
         if isobject(self.private.skychart)
           sc = self.private.skychart;
           sc.place(2) = hms2angle(config.latitude);
@@ -117,10 +119,10 @@ function config = settings_apply(self, fig, config0)
   
   config.UTCoffset          = str2double(config.UTCoffset);
   t0=clock; 
-  write(self, 'set_date', t0(1:3));
-  write(self, 'set_time', t0(4:6));
+  write(self, 'set_date', round(t0(1:3)));
+  write(self, 'set_time', round(t0(4:6)));
   % 'set_UTCoffset',                'SG %+03d',   '','set UTC offset(hh)';
-  write(self, 'set_UTCoffset', self.UTCoffset);
+  write(self, 'set_UTCoffset', round(self.UTCoffset));
   % display date/time settings
   t0(4)=t0(4)-self.UTCoffset; % allows to compute properly the Julian Day from Stellarium
   time(self, t0, 'home'); % sets LST
