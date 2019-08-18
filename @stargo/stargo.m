@@ -301,6 +301,50 @@ classdef stargo < handle
       end
     end % getstatus
     
+    function ra=get_ra(self, option)
+      % GET_RA Return the current mount RA coordinates.
+      %   ra=GET_RA(s) Returns Right Ascension as [hh mm ss] in hours.
+      %
+      %   ra=GET_RA(s,'deg') Returns Right Ascension as a scalar in degrees.
+      %
+      %   ra=GET_RA(s,'target') Returns Target Right Ascension as [hh mm ss] in hours.
+      %   ra=GET_RA(s,'target deg') Returns the same in degrees.
+      if nargin < 2, option = ''; end
+      if strfind(option, 'target')
+        ra = double(self.target_ra);
+      else
+        ra = double(self.state.get_ra);
+      end
+      if strfind(option, 'deg')
+        ra = hms2angle(ra)*15;
+      end
+    end
+    
+    function dec=get_dec(self, option)
+      % GET_DEC Return the current mount RA coordinates.
+      %   dec=GET_DEC(s) Returns Declinaison as [dd mm ss] in degrees.
+      %
+      %   dec=GET_DEC(s,'deg') Returns Declinaison as a scalar in degrees.
+      %
+      %   dec=GET_DEC(s,'target') Returns Target Declinaison as [dd mm ss] in degrees.
+      %   dec=GET_DEC(s,'target deg') Returns the same in degrees.
+      if nargin < 2, option = ''; end
+      if strfind(option, 'target')
+        dec = double(self.target_dec);
+      else
+        dec = double(self.state.get_dec);
+      end
+      if strfind(option, 'deg')
+        dec = hms2angle(dec);
+      end
+    end
+    
+    function st = get_state(self)
+      % GET_STATE Return the mount state, e.g. MOVING, TRACKING.
+      st = self.status;
+    end
+    
+    
     % SET commands -------------------------------------------------------------
     function self=stop(self)
       % STOP Stop/abort any mount move.
