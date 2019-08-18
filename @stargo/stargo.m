@@ -6,15 +6,77 @@ classdef stargo < handle
   %
   % Initial connection:
   % ===================
+  % The StarGo connects automatically to any available serial port, with:
+  % >> addpath('/path/to/stargo');
+  % >> sg = stargo;
   %
+  % You may also specify manually the serial port to use. 
   % With a direct USB connection, use e.g.:
-  %   sg = stargo('/dev/ttyUSB0');      % Linux
-  %   sg = stargo('COM1');              % PC
+  % >> sg = stargo('/dev/ttyUSB0');      % Linux
+  % >> sg = stargo('COM1');              % PC
+  % >> sg = stargo('/dev/tty.KeySerial1'); % MacOSX
   %
   % When using a Bluetooth connection, we recommend to use BlueMan.
   % Install it with e.g. 'sudo apt install blueman' or 'yum install blueman'.
   % Then assign a serial port to the connection (e.g. /dev/rfcomm0) and use:
-  %   sg = stargo('/dev/rfcomm0');
+  % >> sg = stargo('/dev/rfcomm0');
+  %
+  % You may as well use the simulation mode with:
+  % >> sg = stargo('sim');
+  %
+  % Once the StarGo has been started, you can display its interface panel with:
+  % >> plot(sg);
+  %
+  % Initial mount set-up
+  % ====================
+  % **Balancing**
+  % Make sure the scope on the mount is well balanced. 
+  % First balance the DEC axis, then the RA axis. You may need counter-weights 
+  % to balance the RA axis. Also make sure the scope is roughly aligned with the Pole scope.
+  %
+  % **Polar alignment and initial set-up**
+  % The Polar alignment is an essential step. 
+  % Point the North Pole with the scope, the DEC axis pointing down (scope on the top). 
+  % For the alignment, use Stellarium (https://stellarium.org/) 
+  % and display e.g. the North Pole. Display the Equatorial coordinate grid, and 
+  % locate Polaris wrt the North Pole. The view in the Polar scope will be inverted 
+  % (the Polar scope is a refractor). For instance, if Polaris is a 9 o-clock, 
+  % then it must be positioned at 3 o-clock in the Polar scope. Position Polaris
+  % on its circle (at 40 arcmins from Pole), at the given clock quadrant 
+  % (inverted wrt Stellarium). For the South Pole, a similar procedure (using
+  % Stellarium) can be used.
+  % If you are in a hurry, you may align on Polaris only.
+  %
+  % If you have already started the StarGo main interface, then zoom e.g. on the
+  % North Pole. As displayed, Polaris will appear inverted wrt North Pole, as
+  % seen in the Polar Finder. Indeed, as opposed to Stellarium, the view here
+  % is static, with North up, and South down. 
+  %
+  % If not done yet, switch the StarGo board ON, the coordinates are set to zero 
+  % on both RA and DEC axes. 
+  % Start the StarGo Matlab application using e.g. `sg=stargo; plot(sg);`.
+  % The location, date, time and UTC offset are set automatically. Make sure the 
+  % site location is properly set (longitude, latitude), as well as the UTC offset
+  % (time-zone and day-light saving). Use the __StarGo/Settings__ menu for that.
+  % The initial RA and DEC are set at 0.
+  %
+  % When the mount is aligned on the Pole, select the StarGo/Home/Set item, then
+  % StarGo/Home/Goto, then StarGo/Goto and press OK (to define the Pole as a target), 
+  % and finally select StarGo/Sync. The mount is now ready to slew to any other object.
+  % The DEC axis should now be 90.
+  % 
+  % Then set/sync the HOME position. The RA coordinate now shows the meridian, and DEC is set at 90.
+  % Select a reference star and use GOTO to slew the mount there.
+  % With the KeyPad or directional arrows on the interface, center that star in the scope view. The DEC axis usually requires a minimal adjustment, whereas the RA axis may be larger.
+  % Then SYNC/align it. This indicates that the target star is there. The mount coordinates will then be set to that of the star.
+  % You may enter more reference stars, up to 24, in order to refine the alignment.
+  %
+  % Main methods
+  % ============
+  % - goto(sb, ra, dec) send StarGo to RA/DEC  (given in HH:MM:SS and Deg:MM:SS)
+  % - get_ra(sb)     return the current RA coordinate
+  % - get_dec(sb)    return the current DEC coordinate
+  % - get_state(sb)  return the current mount state (GOTO/MOVING, SCOPE/IDLE/TRACKING)
   %
   % Usage:
   % =====
@@ -23,7 +85,7 @@ classdef stargo < handle
   % (c) E. Farhi, GPL2 - version 19.08
 
   properties
-    dev       = 'COM1';   % The serial port, e.g. COM1, /dev/ttyUSB0
+    dev       = '';       % The serial port, e.g. COM1, /dev/ttyUSB0
     version   = '';       % The version of the StarGo board
     longitude = 48.5;     % The current observation longitude (in deg)
     latitude  = 2.33;     % The current observation latitude (in deg)
@@ -56,13 +118,22 @@ classdef stargo < handle
   methods
   
     function sb = stargo(dev)
-      % STARGO Start communication on given device and initialize the stargo
-      %   sb=STARGO(dev) specify a device, e.g. /dev/ttyUSB0
+      % STARGO Start communication and initialize the StarGo.
+      %   sb=STARGO connects to the first available serial port, or simulation mode.
+      %
+      %   sb=STARGO(dev) specifies a device, e.g. /dev/ttyUSB0, COM1, /dev/tty.KeySerial1
       %
       %   sb=STARGO('sim') start the StarGo simulator
       
       if nargin
         sb.dev = dev;
+      end
+      
+      % detect available serial ports, add sim mode
+      g = getports; g{end+1} = 'sim';
+      
+      if isempty(sb.dev)
+        sb.dev = g{1};
       end
       
       % connect serial port
@@ -71,10 +142,8 @@ classdef stargo < handle
           sb.private.serial = serial(sb.dev); fopen(sb.private.serial);
         catch ME
           disp([ '[' datestr(now) '] ' mfilename ': ERROR: failed to connect ' sb.dev ]);
-          g = getports; 
-          if isempty(g), 
-            disp('No connected serial port. Check cables/reconnect.')
-          else disp(g); end
+          disp('Available ports:')
+          disp(g);
           return
         end
       else
@@ -657,7 +726,7 @@ classdef stargo < handle
       % GOTO Send the mount to given RA/DEC coordinates.
       %   GOTO(s, ra,dec) moves mount to given RA,DEC coordinates in [deg].
       %   When any of RA or DEC is empty, the other is positioned.
-      %   GOTO can only be used after a HOME('set') and/or SYNC.
+      %   GOTO can only be used after a HOME('set') and a SYNC (on the Pole).
       %   This defines the mount target, as opposed to SHIFT.
       %
       %   GOTO(s, [H M S], [d m s]) same as above for HH:MM:SS and dd°mm:ss
@@ -836,7 +905,7 @@ classdef stargo < handle
     
     function c = char(self)
       % CHAR Return the mount state as a short string.
-      c = [ 'RA=' self.ra ' DEC=' self.dec ' ' self.status ];
+      c = [ '[' self.dev '] RA=' self.ra ' DEC=' self.dec ' ' self.status ];
       if ~strncmp(self.target_name,'RA_',3)
         c = [ c ' ' self.target_name ];
       end

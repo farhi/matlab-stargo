@@ -10,15 +10,26 @@ function h = update_interface(self)
     set(h, 'Name', char(self));
     
     obj = findobj(h, 'Tag','stargo_status');
-    set(obj, 'String', self.status);
+    % set color depending on STATE
+    switch upper(self.status)
+    case {'HOME','PARKED','STOPPED'}
+      c = 'r';
+    case {'MOVING','SLEWING','PARKING'}
+      c = 'g';
+    case {'TRACKING'}
+      c = 'b';
+    otherwise
+      c = 'k';
+    end
+    set(obj, 'String', self.status,'ForegroundColor',c);
     
     obj = findobj(h, 'Tag','stargo_ra');
     set(obj, 'String', self.ra, ...
-      'Tooltip',[ 'Right ascension. ' num2str(self.private.ra_deg) ' [deg]' ]);
+      'Tooltip',[ 'Right ascension. ' num2str(self.private.ra_deg,3) ' [deg]' ]);
     
     obj = findobj(h, 'Tag','stargo_dec');
     set(obj, 'String', self.dec, ...
-      'Tooltip',[ 'Declinaison. ' num2str(self.private.dec_deg) ' [deg]' ]);
+      'Tooltip',[ 'Declinaison. ' num2str(self.private.dec_deg,3) ' [deg]' ]);
     
     obj = findobj(h, 'Tag','stargo_ra_moving');
     set(obj, 'Value', self.private.ra_move >= 1);
@@ -34,7 +45,7 @@ function h = update_interface(self)
     obj = findobj(h, 'Tag','stargo_target');
     set(obj, 'String', [ 'Target: ' self.target_name ]);
     if ~isempty(self.target_ra)
-      set(obj, 'TooltipString',[ 'RA=' mat2str(self.target_ra) ' DEC=' mat2str(self.target_dec) ]);
+      set(obj, 'TooltipString',[ 'RA=' mat2str(round(self.target_ra)) ' DEC=' mat2str(round(self.target_dec)) ]);
     end
     
     % change button labels according to mount type

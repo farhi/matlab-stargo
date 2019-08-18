@@ -19,7 +19,8 @@ classdef skychart < handle
   %
   % >> sc.place=[ 10 -40 ]; compute(sc,'force'); plot(sc, 1);
   %
-  % Methods (main):
+  % Main Methods
+  % ============
   % - skychart:   create the view.
   % - date:       set/get the date (UTC).
   % - getplace:   get the current GPS location from the network.
@@ -35,7 +36,6 @@ classdef skychart < handle
   %
   % Connecting to a Scope
   % =====================
-  %
   % You may connect to a telescope mount using e.g.
   %
   % >> connect(sc, scope)
@@ -58,7 +58,8 @@ classdef skychart < handle
   %   com.mathworks.mlwidgets.html.HTMLPrefs.setProxyPort(num2str(ProxyPort));
   % otherwise, the default location will be used, but can be changed afterwards.
   %
-  % Credits:
+  % Credits
+  % =======
   % E. Ofek     MAAT            GPL3 2004
   %   http://weizmann.ac.il/home/eofek/matlab/ 
   % F. Glineur  parse_json      BSD  2009
