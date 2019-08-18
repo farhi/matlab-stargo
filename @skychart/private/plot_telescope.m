@@ -11,25 +11,16 @@ function plot_telescope(self)
   delete(findobj(self.figure, 'Tag','SkyChart_Pointer1'));
   delete(findobj(self.figure, 'Tag','SkyChart_Pointer2'));
   delete(findobj(self.figure, 'Tag','SkyChart_Line'));
+  delta_az = 0;
   
-  if self.selected_is_down && isfield(self.selected,'Az')
-    delta_az = self.selected.Az+180;
-  else delta_az = 0;
-  end
-    
   % get the scope location
   RA = []; DEC=[];
-  if isobject(self.telescope) && isvalid(self.telescope)
+  if isobject(self.telescope) && isvalid(self.telescope) && ismethod(self.telescope,'get_ra')
     % get the current scope location
-    if isfield(self.telescope,'private') && isfield(self.telescope.private,'ra_deg')
-      % Avalon StarGo
-      RA =  self.telescope.private.ra_deg;
-      DEC=  self.telescope.private.dec_deg;
-    elseif isfield(self.telescope,'ra_h') && isstruct(self.telescope.ra)
-      % Vixen StarBook
-      RA = (self.telescope.ra.h   +self.telescope.ra.min/60)*15; % h -> deg
-      DEC=  self.telescope.dec.deg+self.telescope.dec.min/60;
-    end
+    RA =  get_ra(self.telescope);
+    DEC=  get_dec(self.telescope);
+    if numel(RA) == 3,  RA =hms2angle(RA)*15; end
+    if numel(DEC) == 3, DEC=hms2angle(DEC); end
   end
   
   % plot
@@ -43,10 +34,13 @@ function plot_telescope(self)
     plot(X,Y, 'r+', 'MarkerSize', 20, 'Tag','SkyChart_Pointer2');
     
     % we also draw a line when the target is defined, so that we can see where we go
-    if isfield(self.telescope,'private') && isfield(self.telescope.private,'target_name')
-      if ~isempty(self.telescope.target_name) && strcmp(self.telescope.status,'MOVING')
-        target_ra_deg = hms2angle(self.telescope.target_ra)*15; % in deg
-        target_dec_deg= hms2angle(self.telescope.target_dec); % in deg
+    if isobject(self.telescope) && isvalid(self.telescope) && ismethod(self.telescope,'get_state')
+      state = upper(get_state(self.telescope));
+      if any(strcmp(state,{'MOVING','GOTO'}))
+        target_ra_deg = get_ra(self.telescope,'target'); 
+        target_dec_deg= get_dec(self.telescope,'target');
+        if numel(target_ra_deg) == 3,  target_ra_deg =hms2angle(target_ra_deg)*15; end
+        if numel(target_dec_deg) == 3, target_dec_deg=hms2angle(target_dec_deg); end
         [tAz, tAlt] = radec2altaz(target_ra_deg, target_dec_deg, self.julianday, self.place);
         [tX, tY]    = pr_stereographic_polar(tAz+90-delta_az, tAlt);
         line([ X tX ], [ Y tY ], 'LineStyle','--','Color','r','Tag','SkyChart_Line');

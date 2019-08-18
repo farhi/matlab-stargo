@@ -37,8 +37,6 @@ function [sc, new] = plot_frame(sc)
         'CloseRequestFcn',@MenuCallback, 'UserData', sc);
     end
     
-%    if sc.selected_is_down, selected_is_down = 'on';
-%    else selected_is_down = 'off'; end
     m = uimenu(h, 'Label', 'SkyChart');
     uimenu(m, 'Label', 'Compute For Given Time', ...
       'Callback', @MenuCallback, 'Accelerator','t');
@@ -50,10 +48,6 @@ function [sc, new] = plot_frame(sc)
       'Callback', @MenuCallback, 'Separator','on');
     uimenu(m, 'Label', 'Reset Plot', ...
       'Callback', @MenuCallback);
-%    uimenu(m, 'Label', 'Auto Rotate Plot', ...
-%      'Callback', @MenuCallback, 'Checked', selected_is_down);
-    uimenu(m, 'Label', 'Connect to Scope', ...
-      'Callback', @MenuCallback, 'Separator','on');
     uimenu(m, 'Label', 'GOTO Selected Object', ...
       'Callback', @MenuCallback);
     uimenu(m, 'Label', 'Help', 'Callback', @MenuCallback, 'Separator','on');
@@ -247,12 +241,6 @@ function MenuCallback(src, evnt)
     help(sc);
   case 'set period...'
     listPeriod(sc);
-  case 'auto rotate plot'
-    sc.selected_is_down = ~sc.selected_is_down;
-    if sc.selected_is_down, set(src, 'Checked', 'on');
-    else set(src, 'Checked', 'off'); end
-    compute(sc,'now');
-    plot(sc, 1);
   end
 end % MenuCallback
 

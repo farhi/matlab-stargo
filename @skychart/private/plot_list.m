@@ -4,10 +4,7 @@ function plot_list(self)
   % clean up previous selection
   delete(findobj(self.figure, 'Tag','SkyChart_Selection'));
   
-  if self.selected_is_down && isfield(self.selected,'Az')
-    delta_az = self.selected.Az+180;
-  else delta_az = 0;
-  end
+  delta_az = 0;
   
   % get current selection
   RA = [];

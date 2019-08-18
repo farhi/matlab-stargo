@@ -12,20 +12,21 @@ classdef skychart < handle
   %
   % To use this code, type
   %
-  % >> sc = skychart
+  % >> sc = skychart;
   %
-  % displays the view at the current UTC and location. You can set the location with:
+  % displays the view at the current UTC and location. 
+  % You can set the location (in deg) with:
   %
   % >> sc.place=[ 10 -40 ]; compute(sc,'force'); plot(sc, 1);
   %
   % Methods (main):
-  %   skychart:   create the view
-  %   date:       set/get the date (UTC)
-  %   getplace:   get the current GPS location from the network
-  %   plot:       plot/replot the view.
-  %   connect:    connect to a scope controler
-  %   goto:       send connected scope to selected location
-  %   findobj:    search for a named object and select it
+  % - skychart:   create the view.
+  % - date:       set/get the date (UTC).
+  % - getplace:   get the current GPS location from the network.
+  % - plot:       plot/replot the view.
+  % - connect:    connect to a scope controler.
+  % - goto:       send connected scope to selected location.
+  % - findobj:    search for a named object and select it.
   %
   % You may force a re-computation and replot of the sky view with:
   %
@@ -33,16 +34,19 @@ classdef skychart < handle
   % >> plot(sc, 1)
   %
   % Connecting to a Scope
+  % =====================
   %
   % You may connect to a telescope mount using e.g.
   %
   % >> connect(sc, scope)
   %
   % where 'scope' should be an object with methods:
-  %
-  %   getstatus: read the mount status, and update the scope properties:
-  %              scope.ra, scope.dec
-  %   goto(RA,DEC): send the mount to location (RA,DEC)
+  % - goto(sc,RA,DEC):  sends the mount to location (RA,DEC)
+  % - get_ra( sc):      returns the RA coordinate as [HH MM SS]
+  % - get_dec(sc):      returns the DEC coordinate as [DD MM SS]
+  % - get_ra( sc,'target'):      returns the target RA coordinate as [HH MM SS] (optional)
+  % - get_dec(sc,'target'):      returns the target DEC coordinate as [DD MM SS] (optional)
+  % - get_state(sc):    returns the mount state, e.g. MOVING, TRACKING (optional)
   %
   % Note: when behind a firewall, in order to get the initial GPS location, you may need to set
   %   ProxyHost='proxy.ill.fr'; % Proxy address if you are behind a proxy [e.g. myproxy.mycompany.com or empty]
@@ -52,7 +56,7 @@ classdef skychart < handle
   %   com.mathworks.mlwidgets.html.HTMLPrefs.setProxyHost(ProxyHost);
   %   java.lang.System.setProperty('http.proxyPort', num2str(ProxyPort));
   %   com.mathworks.mlwidgets.html.HTMLPrefs.setProxyPort(num2str(ProxyPort));
-  % otherwise, the default locrion will be used, and can be changed afterwards.
+  % otherwise, the default location will be used, but can be changed afterwards.
   %
   % Credits:
   % E. Ofek     MAAT            GPL3 2004
@@ -89,9 +93,6 @@ classdef skychart < handle
     plotting  = false;    % True when plotting
     UserData  = [];       % Open for any further storage from User
     update_counter = 0;   % A counter to automatically replot all after e.g. 10 min.
-    
-    selected_is_down = true;  % When true, the sky is rotated to show selected object downwards.
-    selected_angle   = 0;
     
     % catalogs is a struct array of single catalog entries.
     % Each named catalog entry has fields:
@@ -252,12 +253,8 @@ classdef skychart < handle
         % compute the horizontal coordinates (Alt-Az)
         [catalog.Az, catalog.Alt] = radec2altaz(catalog.RA, catalog.DEC, ...
           self.julianday, self.place);
-        % apply rotation on selected object when option is ON
-        if self.selected_is_down && isfield(self.selected,'Az')
-          delta_az = self.selected.Az+180;
-        else delta_az = 0;
-        end
         % compute the stereographic polar coordinates
+        delta_az = 0;
         [catalog.X, catalog.Y]    = pr_stereographic_polar( ...
           catalog.Az+90-delta_az, catalog.Alt);
           
@@ -481,7 +478,7 @@ classdef skychart < handle
         % send scope
         self.telescope.goto(varargin{:});
       else
-        disp([ mfilename ': No Scope is Connected yet. Use "connect" first' ]);
+        disp([ mfilename ': No Scope is Connected yet. Use "connect(' inputname(1) ', scope)" first' ]);
       end
     end % goto
     
