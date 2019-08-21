@@ -57,20 +57,21 @@ classdef stargo < handle
   % If not done yet, switch the StarGo board ON, the coordinates are set to zero 
   % on both RA and DEC axes. 
   % Start the StarGo Matlab application using e.g. `sg=stargo; plot(sg);`.
-  % The location, date, time and UTC offset are set automatically. Make sure the 
+  % The date, time and UTC offset are set automatically. Make sure the 
   % site location is properly set (longitude, latitude), as well as the UTC offset
-  % (time-zone and day-light saving). Use the __StarGo/Settings__ menu for that.
+  % (time-zone and day-light saving). Use the __StarGo/Settings__ menu for changes.
   % The initial RA and DEC are set at 0.
   %
-  % When the mount is aligned on the Pole, select the StarGo/Home/Set item, then
-  % StarGo/Home/Goto, then StarGo/Goto and press OK (to define the Pole as a target), 
-  % and finally select StarGo/Sync. The mount is now ready to slew to any other object.
-  % The DEC axis should now be 90.
+  % When the mount is aligned on the Pole, select the StarGo/Home/Set item.
+  % The DEC axis should now be 90. The mount is now ready to slew to any other object.
   % 
-  % Then set/sync the HOME position. The RA coordinate now shows the meridian, and DEC is set at 90.
-  % Select a reference star and use GOTO to slew the mount there.
-  % With the KeyPad or directional arrows on the interface, center that star in the scope view. The DEC axis usually requires a minimal adjustment, whereas the RA axis may be larger.
-  % Then SYNC/align it. This indicates that the target star is there. The mount coordinates will then be set to that of the star.
+  % Select a reference star and use GOTO to slew the mount there. It should rather
+  % be away from the Pole, and rather bright (mag below 5).
+  % With the KeyPad or directional arrows on the interface, centre that star in 
+  % the scope view. The DEC axis usually requires a minimal adjustment, whereas 
+  % the RA axis may be larger.
+  % Then SYNC/align it to indicates that the target star is there. The mount 
+  % coordinates will then be set to that of the star.
   % You may enter more reference stars, up to 24, in order to refine the alignment.
   %
   % Main methods
@@ -180,7 +181,7 @@ classdef stargo < handle
       pl = place(sb, 'network'); % location guess from the network
       if ~isempty(pl) && isscalar(sb.longitude) && isscalar(sb.latitude)
         if abs(pl(1)-sb.longitude) > 1 || abs(pl(2)-sb.latitude) > 1
-          disp([ '[' datestr(now) '] WARNING: ' mfilename ': the controller location [long,lat]=' ...
+          disp([ '[' datestr(now) '] WARNING: ' mfilename ': board location [long,lat]=' ...
             mat2str([ sb.longitude sb.latitude ],4) ...
             ' [deg] does not match that guessed from the Network ' mat2str(pl,4) ]);
           disp('  *** Check StarGo Settings ***')
@@ -312,6 +313,10 @@ classdef stargo < handle
     function v = identify(self)
       % IDENTIFY Read the StarGo identification string.
       self.version = queue(self, {'get_manufacturer','get_firmware','get_firmwaredate'});
+      if isempty(self.version) && isfield(self.state,'get_manufacturer')
+        self.version = sprintf('%s %f %s', self.state.get_manufacturer, ...
+          self.state.get_firmware, self.state.get_firmwaredate);
+      end
       v = self.version;
     end % identify
     
@@ -473,6 +478,8 @@ classdef stargo < handle
       %
       %   PLACE(s, long, lat) sets longitude and latitude, given in either degrees
       %   of as [HH MM SS] vectors.
+      %
+      %   PLACE(s, [long, lat]) sets longitude and latitude given in either degrees.
       
       if nargin == 1
         getstatus(self, {'get_site_latitude','get_site_longitude'});
@@ -481,7 +488,7 @@ classdef stargo < handle
       end
       if nargin < 3, latitude  = ''; end
       
-      if ischar(longitude) && strcmp(longitude, 'network')
+      if ischar(longitude) && strncmp(longitude, 'network',3)
         pl = getplace;
         return
       end
@@ -1234,7 +1241,7 @@ function c = getcommands
     'set_torque',                   'TTT%03d',    '','set motor torque (e.g. x=50 or 70, BEWARE; RESET board)';
     'set_UTCoffset',                'SG %+03d',   '','set UTC offset(hh)';
     'set_unknown_x280300',          'X280300',    '','set unknown X280300, return 0';
-    'set_unknown_x280303',          'X280303',    '','set unknown X280300, return 0';
+    'set_unknown_x280303',          'X280303',    '','set unknown X280303, return 0';
     'set_unknown_ttgm',             'TTGM',       '','set unknown TTGM, return 1';
     'set_unknown_ttsfg',            'TTSFG',      '','set unknown TTSFG, return 0';
     'set_unknown_ttghs',            'TTGHS',      '','set unknown TTGHS, return nothing';

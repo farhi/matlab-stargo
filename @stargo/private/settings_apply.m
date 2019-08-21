@@ -81,32 +81,10 @@ function config = settings_apply(self, fig, config0)
       end
     case 'longitude'
       config.longitude          = repradec(config.longitude);
-      if numel(config.longitude) == 1
-        [d,m,s] = angle2hms(config.longitude);
-        config.longitude = [ d m s ];
-      end
-      if numel(config.longitude) == 3
-        queue(self, 'set_site_longitude', round(config.longitude));
-        pause(0.1)
-        if isobject(self.private.skychart)
-          sc = self.private.skychart;
-          sc.place(1) = hms2angle(config.longitude);
-        end
-      end
+      place(self, config.longitude, '');
     case 'latitude'
       config.latitude           = repradec(config.latitude);
-      if numel(config.latitude) == 1
-        [d,m,s] = angle2hms(config.latitude);
-        config.latitude = [ d m s ];
-      end
-      if numel(config.latitude) == 3
-        queue(self, 'set_site_latitude', round(config.latitude));
-        pause(0.1)
-        if isobject(self.private.skychart)
-          sc = self.private.skychart;
-          sc.place(2) = hms2angle(config.latitude);
-        end
-      end
+      place(self, '', config.latitude);
     otherwise
       disp([ mfilename ': WARNING: settings: ignoring unkown ' f{1} ' parameter.' ]);
     end % switch
