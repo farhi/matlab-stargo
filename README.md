@@ -37,7 +37,7 @@ sg = stargo;  % should detect the serial port
 plot(sg);
 ```
 
-In case the wrong serial port is used, or is not detected, you may use, following the above mentioned port (here for a USB cable under Linux):
+In case the wrong serial port is used, or is not detected, you may use, following the above mentioned port (here for a USB cable under Linux). The window can be rescaled to match your screen resolution.
 ```matlab
 sg = stargo('/dev/ttyUSB0');
 ```
@@ -48,7 +48,6 @@ After a few seconds, the main StarGo interface will show up. The window can be r
 ![StarGo Main GUI](https://github.com/farhi/matlab-stargo/blob/master/@stargo/doc/StarGo_main_interface.png)
 
 You should then open the settings Dialogue with the main interface 'StarGo/Settings' menu item, or with command:
-for a USB cable under Linux). The window can be rescaled to match your screen resolution.
 ```matlab
 settings(sg); 
 ```
@@ -71,6 +70,8 @@ Menus allow more more commands, e.g.:
 - The SkyChart menu relates to commands for the sky view.
 - The Planning menu allow to define a set of targets, and then run through an observation list with exposure times.
 
+Experiment the interface a little to discover its functionalities.
+
 Setup of the scope
 ==================
 
@@ -84,9 +85,10 @@ Polar alignment
 
 The Polar alignment is an essential step. It is defined as the HOME position, pointing towards the Pole. Install the Polar Scope provided by Avalon with your mount. By construction, it does not require any alignment, as the mechanics is finely adjusted. Connect the LED to the StarGo and switch it ON from the StarGo settings Dialogue. Then, you need to position correctly the Polaris star wrt the Pole (in Northern Hemisphere), in the Polar Scope. 
 
-The Sky Chart displayed on the main interface assumes you are facing South. This means that the area around Polaris on this map is already reverted, as seen in a refractor. You can then zoom on Polaris (use the (+) icon on the ToolBar, select a rectangle region around). The North Pole is also displayed. Rotate the Polar Scope (unscrew slightly its two small knobs) to match the Chart, so that the Polaris circle is at the same o-clock positionin the Polar Scope. Then block it.
+The Sky Chart displayed on the main interface assumes you are facing South. This means that the area around Polaris on this map is already reverted, as seen in a refractor. You can then zoom on Polaris (use the (+) icon on the ToolBar, select a rectangle region around). The North Pole is also displayed. Rotate the Polar Scope (unscrew slightly its two small knobs) to match the Chart, so that the Polaris circle is at the same o-clock position in the Polar Scope. Then block it.
 
-![StarGo zoom on Polaris](https://github.com/farhi/matlab-stargo/blob/master/@stargo/doc/StarGo_Polaris.png)
+![StarGo zoom on Polaris (Matlab)](https://github.com/farhi/matlab-stargo/blob/master/@stargo/doc/StarGo_Polaris.png)
+![StarGo zoom on Polaris (Stellarium)](https://github.com/farhi/matlab-stargo/blob/master/@stargo/doc/StarGo_Polaris_Stellarium.png)
 
 Now, position Polaris on its circle in the Polar Scope corresponding to the Sky Chart by adjusting the altitude (elevation, vertical screw), and the azimuthal position (with two horizontal screw). As said before, as the image is reversed, movements will be opposite i in the Polar Scope. Once done, block it all. Make sure you will not bump into the tripod, mount or scope afterwards (be cautious).
 
@@ -96,7 +98,7 @@ For the South Pole, a similar procedure (using the StarGo SkyChart or Stellarium
 
 If you are in a hurry, you may align on Polaris only. This is not as good, but will do if you use short exposures (e.g. 30 s max). On longer exposures, stars would be seen as circling slowly.
 
-Once the mount is aligned on the Pole, you can synchronise the StarGo encoders on that position by selecting the 'StarGo/Home/Set HOME position' menu item. 
+Once the mount is aligned on the Pole, you can synchronise the StarGo encoders on that position by selecting the 'StarGo/Home/Set HOME position' menu item. Then, as the mount knows the Pole location (HOME), the site GPS and the time, it can be requested to point any object. However, without a reference few star alignments, the accuracy may not be perfect.
 
 Star alignment
 --------------
