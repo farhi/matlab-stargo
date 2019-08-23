@@ -98,18 +98,18 @@ For the South Pole, a similar procedure (using the StarGo SkyChart or Stellarium
 
 If you are in a hurry, you may align on Polaris only. This is not as good, but will do if you use short exposures (e.g. 30 s max). On longer exposures, stars would be seen as circling slowly.
 
-Once the mount is aligned on the Pole, you can synchronise the StarGo encoders on that position by selecting the 'StarGo/Home/Set HOME position' menu item. Then, as the mount knows the Pole location (HOME), the site GPS and the time, it can be requested to point any object. However, without a reference few star alignments, the accuracy may not be perfect.
+Once the mount is aligned on the Pole, you can synchronise the StarGo encoders on that position by selecting the 'StarGo/Home/Set HOME position' menu item. 
+You may alternatively enter the command:
+```matlab
+home(sg, 'set');
+```
+
+The DEC coordinate is then set to e.g. 90 deg, and the RA coordinate cooresponds with the current West. Once done, as the mount knows the Pole location (HOME), the site GPS and the time, it can be requested to point any object. However, without a reference few star alignments, the accuracy may not be perfect.
 
 Star alignment
 --------------
 
-- Align your scope with the North Pole. Position you scope so that the North Pole is visiblethe coordinates are set to zero on both RA and DEC axes. 
-- Start the StarGo Matlab application using e.g. `addpath('/path/to/stargo'); sg=stargo('/dev/ytyUSB0'); plot(sg);`. The proper serial port is something like `COM1` under Windows, `/dev/tty.KeySerial1` under MacOSX, and `/dev/ttyUSB0` under Linux.
-- The location, date, time and UTC offset are set automatically. Make sure the site location is properly set (longitude, latitude), as well as the UTC offset (time-zone and day-light saving). Use the __Navigate/Settings__ menu for that.
-- The initial RA and DEC are set at 0.
-- 
-- Then set/sync the HOME position. The RA coordinate now shows the meridian, and DEC is set at 90.
-- Select a reference star and use GOTO to slew the mount there.
+- Select a reference star (e.g. Regulus, Vega, Sirius, Betelgeuse) and use GOTO to slew the mount there.
 - With the KeyPad or directional arrows on the interface, center that star in the scope view. The DEC axis usually requires a minimal adjustment, whereas the RA axis may be larger.
 - Then SYNC/align it. This indicates that the target star is there. The mount coordinates will then be set to that of the star.
 - You may enter more reference stars, up to 24, in order to refine the alignment.
