@@ -177,11 +177,10 @@ classdef astrometry < handle
     process_java = [];
     process_dir  = [];
     timer        = [];
-    
+    catalogs     = [];
   end % private properties
   
   properties (Constant=true)
-    catalogs     = getcatalogs;       % load catalogs
     executables  = find_executables;  % search for executables
   end % shared properties
   
@@ -214,6 +213,21 @@ classdef astrometry < handle
       % 
       % Example:
       %   as=astrometry('M33.jpg','scale-low', 0.5, 'scale-high',2);
+      
+      % handle input arguments
+      removeme = [];
+      for index=1:2:numel(varargin)
+        if ischar(varargin{index})
+          switch varargin{index}
+          case 'catalogs'
+            self.catalogs = varargin{index+1};
+            removeme = [ index index+1 ];
+          end
+        end
+      end
+      if isempty(self.catalogs)
+        self.catalogs = getcatalogs;
+      end
       
       if nargin
         % first try with the local plate solver
