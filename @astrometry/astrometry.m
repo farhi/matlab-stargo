@@ -776,7 +776,7 @@ classdef astrometry < handle
           disp([ '  ' upper(self.status) ' in <a href="' self.process_dir '">' self.process_dir '</a>' ]);
         end
       else
-        disp([ '  ' upper(self.status) ': use annotate(as,''filename'').' ]);
+        disp([ '  ' upper(self.status) ': use solve(as,''filename'').' ]);
       end
     
     end % disp

@@ -13,12 +13,21 @@ STARGO: this is a Matlab class to control the Avalon StarGo for telescope mounts
    
 This way you can fully control, and plan the sky observations from your sofa, while it's freezing outside.
 
-Initial set-up of the StarGo board
-===================================
+Table of Contents
+- [Initial set-up of the StarGo board](#stargo-init)
+- [Connecting the StarGo board to the compute](#connecting)
+- [Description of the StarGo main interface](#interface)
+- [Setup of the scope](#mount-init) (balancing, polar alignment, star alignment)
+- [Methods](#methods)
+- [Installation](#installation)
+- [Credits](#credits)
+
+Initial set-up of the StarGo board <a id=stargo-init></a>
+==================================
 
 For the initial set-up (only once), it is safer to follow the instructions from Avalon, and used their StarGo software. This way, all internal settings (torque, gear ratio, other hidden stuff) will be transferred to the board from the MCF pre-configured files. You will thus need a Windows system, and the ASCOM platform. Once done, you do not need any more the ASCOM drivers (except if you wish to control other equipment), nor Windows (any other system will do). Make sure you also set the correct location (longitude, latitude) for your observation site. This can be changed later from the matlab-stargo application.
 
-Connecting the StarGo board to the computer
+Connecting the StarGo board to the computer <a id=connecting></a>
 ===========================================
 
 Switch ON the StarGo controller (plug its power supply). You may then connect the StarGo board to the computer either using a USB cable, or via Bluetooth/wifi. Follow the procedure indicated in the StarGo manual. In the end, you will get a serial port reference such as (this depends on your system):
@@ -56,7 +65,7 @@ settings(sg);
 
 Check the main settings, e.g. the latitude and longitude for your observation site, as well as the Polar scope LED level. If the attached scope does not collide with the mount when passing the meridian, you can leave the meridian flip mode to 'off', else set it to 'auto'. We do not recommend to change the other setings, except the RA/DEC reverse mode in case the mount does not go in the right direction when pressing the arrow keys. In case you need to change the mount mode (equatorial / alt-azimutal), you may need to restart the board. Then restart Matlab and re-connect to your StarGo board.
 
-Description of the StarGo main interface
+Description of the StarGo main interface <a id=interface></a>
 ========================================
 
 The interface displays the RA and DEC coordinates reported by the board (the mount) on the left side. Red LEDs on the left are switched on when motors are active (tracking or moving). The slew speed for manual moves can be changed with the slider below (4 levels, it may be slow to respond - be patient). Arrow keys allow the move the RA and DEC motors using the above slew speed. Pressing the arrows starts the move. To stop it, press the STOP button in the centre. The mount status is shown on the bottom left, e.g. as TRACKING or MOVING.
@@ -72,7 +81,7 @@ Menus allow more more commands, e.g.:
 
 Experiment the interface a little to discover its functionalities.
 
-Setup of the scope
+Setup of the scope<a id=mount-init></a>
 ==================
 
 Balancing
@@ -114,7 +123,49 @@ Star alignment
 - Then SYNC/align it. This indicates that the target star is there. The mount coordinates will then be set to that of the star.
 - You may enter more reference stars, up to 24, in order to refine the alignment.
 
-Usage
------
+
+
+
+Methods <a id=methods></a>
+=======
+
+Installation <a id=installation></a>
+============
+ 
+The Astrometry.net must be available, either locally, or via a Network connection (and then you need Python).
+
+   **Local installation (recommended)**
+ 
+On Linux systems, install the 'astrometry.net' package, as well as the 'tycho2' data base. On Debian-class systems, this is achieved with:
+     
+```bash
+  sudo apt install astrometry.net astrometry-data-tycho2 sextractor
+```
+
+On other systems, you will most probably need to compile it.
+See: http://astrometry.net/doc/build.html
+RedHat/Arch/MacOSX have specific installation instructions.
+ 
+If you have images spanning on very tiny areas (e.g. much smaller than a 
+degree), you will most probably need to install the '2MASS' data base.
+ 
+   **Matlab files**
+   
+First navigate to the matlab-stargo directory or type:
+ 
+```matlab
+  addpath /path/to/matlab-stargo
+```
+ 
+Credits <a id=credits></a>
+=======
+
+- Local Time to UTC from https://fr.mathworks.com/matlabcentral/fileexchange/22295-local-time-to-utc
+- Parse JSON from https://fr.mathworks.com/matlabcentral/fileexchange/23393--another--json-parser
+- Amazing work from Eran O. Ofek (MAAT). URL : http://weizmann.ac.il/home/eofek/matlab/
+- Stars (~100000) data base from http://astrosci.scimuze.com/stellar_data.htm
+- deep sky objects (~200000) from http://klima-luft.de/steinicke/ngcic/ngcic_e.htm
+ 
+(c) E. Farhi, 2019. GPL2.
 
 
