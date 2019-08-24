@@ -1,5 +1,5 @@
 # matlab-stargo
-Control an Avalon mount with StarGo from Matlab
+Control an Avalon mount with StarGo from Matlab. 
 Version: 19.08. Download at https://github.com/farhi/matlab-stargo.
 
 ![Image of StarGo](https://github.com/farhi/matlab-stargo/blob/master/@stargo/doc/stargo.jpg)
@@ -26,6 +26,8 @@ Initial set-up of the StarGo board <a id=stargo-init></a>
 ==================================
 
 For the initial set-up (only once), it is safer to follow the instructions from Avalon, and used their StarGo software. This way, all internal settings (torque, gear ratio, other hidden stuff) will be transferred to the board from the MCF pre-configured files. You will thus need a Windows system, and the ASCOM platform. Once done, you do not need any more the ASCOM drivers (except if you wish to control other equipment), nor Windows (any other system will do). Make sure you also set the correct location (longitude, latitude) for your observation site. This can be changed later from the matlab-stargo application.
+
+In case you do not have access to a Windows system, you can still use the matlab-stargo, but some functionalities may be incomplete.
 
 Connecting the StarGo board to the computer <a id=connecting></a>
 ===========================================
@@ -101,7 +103,7 @@ The Sky Chart displayed on the main interface assumes you are facing South. This
 
 Now, position Polaris on its circle in the Polar Scope corresponding to the Sky Chart by adjusting the altitude (elevation, vertical screw), and the azimuthal position (with two horizontal screw). As said before, as the image is reversed, movements will be opposite i in the Polar Scope. Once done, block it all. Make sure you will not bump into the tripod, mount or scope afterwards (be cautious).
 
-You may also use ![Stellarium](https://stellarium.org/) and display the North Pole. Display the Equatorial coordinate grid, and locate Polaris wrt the North Pole, using clock graduations. The view in the Polar scope will be inverted (the Polar scope is a refractor). For instance, if Polaris is a 9 o-clock, then it must be positioned at 3 o-clock in the Polar scope. Position Polaris on its circle (at 40 arcmins from Pole), at the given clock quadrant (inverted wrt Stellarium). 
+You may also use Stellarium https://stellarium.org/ and display the North Pole. Display the Equatorial coordinate grid, and locate Polaris wrt the North Pole, using clock graduations. The view in the Polar scope will be inverted (the Polar scope is a refractor). For instance, if Polaris is a 9 o-clock, then it must be positioned at 3 o-clock in the Polar scope. Position Polaris on its circle (at 40 arcmins from Pole), at the given clock quadrant (inverted wrt Stellarium). 
 
 For the South Pole, a similar procedure (using the StarGo SkyChart or Stellarium) can be used, but the image on the Sky Chart is not reversed.
 
@@ -131,10 +133,20 @@ Methods <a id=methods></a>
 
 Installation <a id=installation></a>
 ============
- 
-The Astrometry.net must be available, either locally, or via a Network connection (and then you need Python).
 
-   **Local installation (recommended)**
+There is no ned for any ASCOM, nor INDI plateform. Only Matlab (no other toolbox), and possibly Astrometry.net (see below), as well as gphoto if you plan to use a camera.
+
+**Matlab files**
+   
+First navigate to the matlab-stargo directory or type:
+ 
+```matlab
+  addpath /path/to/matlab-stargo
+```
+
+In order to be able to use the image-alignment, Astrometry.net must be available, either locally, or via a Network connection (and then you need Python).
+
+**Astrometry Local installation (recommended)**
  
 On Linux systems, install the 'astrometry.net' package, as well as the 'tycho2' data base. On Debian-class systems, this is achieved with:
      
@@ -148,14 +160,8 @@ RedHat/Arch/MacOSX have specific installation instructions.
  
 If you have images spanning on very tiny areas (e.g. much smaller than a 
 degree), you will most probably need to install the '2MASS' data base.
- 
-   **Matlab files**
-   
-First navigate to the matlab-stargo directory or type:
- 
-```matlab
-  addpath /path/to/matlab-stargo
-```
+
+In case you do not manage to install Astrometry.net locally, you may still use it through a Network connection, by using a provided Python script. Then, you only need a basic Python.
  
 Credits <a id=credits></a>
 =======
