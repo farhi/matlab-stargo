@@ -134,7 +134,8 @@ Methods <a id=methods></a>
 Installation <a id=installation></a>
 ============
 
-There is no ned for any ASCOM, nor INDI plateform. Only Matlab (no other toolbox), and possibly Astrometry.net (see below), as well as gphoto if you plan to use a camera.
+There is no ned for any ASCOM, nor INDI plateform. Only Matlab (no other toolbox), 
+as well as gphoto if you plan to use a camera.
 
 **Matlab files**
    
@@ -143,25 +144,6 @@ First navigate to the matlab-stargo directory or type:
 ```matlab
   addpath /path/to/matlab-stargo
 ```
-
-In order to be able to use the image-alignment, Astrometry.net must be available, either locally, or via a Network connection (and then you need Python).
-
-**Astrometry Local installation (recommended)**
- 
-On Linux systems, install the 'astrometry.net' package, as well as the 'tycho2' data base. On Debian-class systems, this is achieved with:
-     
-```bash
-  sudo apt install astrometry.net astrometry-data-tycho2 sextractor
-```
-
-On other systems, you will most probably need to compile it.
-See: http://astrometry.net/doc/build.html
-RedHat/Arch/MacOSX have specific installation instructions.
- 
-If you have images spanning on very tiny areas (e.g. much smaller than a 
-degree), you will most probably need to install the '2MASS' data base.
-
-In case you do not manage to install Astrometry.net locally, you may still use it through a Network connection, by using a provided Python script. Then, you only need a basic Python.
  
 Credits <a id=credits></a>
 =======
