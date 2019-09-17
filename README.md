@@ -131,10 +131,48 @@ Star alignment
 Methods <a id=methods></a>
 =======
 
+- about Display a dialogue about the mount status and software.
+- align Synchronise current RA/DEC with last target (sync). 
+- calibrate Measure the speed of the mount for all zoom levels.
+- char  Return the mount state as a short string. 
+- delete  Close connection 
+- display Display StarGo object (short). 
+- get_dec Return the current mount RA coordinates.   
+- get_ra  Return the current mount RA coordinates.   
+- get_state Return the mount state, e.g. MOVING, TRACKING.   
+- getstatus Get the mount status (RA, DEC, Status)   
+- goto  Send the mount to given RA/DEC coordinates.   
+- gotoradec Send the mount to given RA/DEC coordinates. 
+- help  Open the Help page.   
+- home  Send the mount to its HOME position.   
+- identify  Read the StarGo identification string.   
+- inputdlg  Display a dialogue to set board settings, same as SETTINGS. 
+- location Show the current GPS location on a Map.   
+- meridianflip  Get/set meridian flip behaviour   
+- move  Slew the mount in N/S/E/W directions   
+- park  Send the mount to a reference PARK position.   
+- place Set/get the site location.   
+- plot  Display main StarGo GUI.   
+- pulse Get/set pulse length for slow moves   
+- queue Send a single command, returns the answer.   
+- read  Receive the output from the serial port.   
+- settings  Display a dialogue to set board settings.   
+- shift Move the mount by a given amount on both axes. The target is kept.   
+- start Reset mount to its startup state.   
+- stop  Stop/abort any mount move.   
+- sync  Synchronise current RA/DEC with last target.   
+- time  Set the local sidereal time (LST)   
+- tracking  Get/set tracking mode   
+- uitable Display all available commands as a Table.   
+- unpark  Wake-up mount from park position.   
+- web Display the StarGo RA/DEC location in a web browser (http://www.sky-map.org).   
+- write Send a single command, does not wait for answer.   
+- zoom  Set (or get) slew speed. Level should be 1,2,3 or 4.
+
 Installation <a id=installation></a>
 ============
 
-There is no ned for any ASCOM, nor INDI plateform. Only Matlab (no other toolbox), 
+There is no need for any ASCOM, nor INDI plateform. Only Matlab (no other toolbox), 
 as well as gphoto if you plan to use a camera.
 
 **Matlab files**
