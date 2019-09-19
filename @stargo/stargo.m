@@ -296,7 +296,6 @@ classdef stargo < handle
         
     function delete(self)
       % DELETE Close connection
-      h = update_interface(self);
       if isa(self.private.timer,'timer') && isvalid(self.private.timer)
         stop(self.private.timer);
         delete(self.private.timer); 
@@ -305,8 +304,14 @@ classdef stargo < handle
       if isa(self.private.serial,'serial') && isvalid(self.private.serial) 
         fclose(self.private.serial);
       end
-      close(h);
+      close(self);
     end
+    
+    function close(self)
+      % CLOSE Close the SkyChart view
+      h = update_interface(self);
+      delete(h);      
+    end % close
     
     % GET commands -------------------------------------------------------------
     
@@ -475,6 +480,15 @@ classdef stargo < handle
       %
       %   PLACE(s, 'network') reads the [longitude latitude] in deg from the 
       %   network (http://ip-api.com/json).
+      %   Note: when behind a firewall, in order to get the initial GPS location, you may need to set
+      %     ProxyHost='proxy.ill.fr'; % Proxy address if you are behind a proxy [e.g. myproxy.mycompany.com or empty]
+      %     ProxyPort=8888;           % Proxy port if you are behind a proxy [8888 or 0 or empty]
+      %     java.lang.System.setProperty('http.proxyHost', ProxyHost); 
+      %     com.mathworks.mlwidgets.html.HTMLPrefs.setUseProxy(true);
+      %     com.mathworks.mlwidgets.html.HTMLPrefs.setProxyHost(ProxyHost);
+      %     java.lang.System.setProperty('http.proxyPort', num2str(ProxyPort));
+      %     com.mathworks.mlwidgets.html.HTMLPrefs.setProxyPort(num2str(ProxyPort));
+      %   otherwise, the default location will be used, but can be changed afterwards.
       %
       %   PLACE(s, long, lat) sets longitude and latitude, given in either degrees
       %   of as [HH MM SS] vectors.
@@ -1069,10 +1083,24 @@ classdef stargo < handle
     
     function h = plot(self)
       % PLOT Display main StarGo GUI.
+      %
+      %   You may add more marks on the SkyChart plot using SCATTER(s,RA,DEC).
       h = build_interface(self);
       figure(h); % raise
       update_interface(self);
     end % plot
+    
+    function h = scatter(self, varargin)
+      % SCATTER Display RA/DEC coordinates on the SkyChart plot.
+      %   h=SCATTER(s, 'HH:MM:SS','DD:MM:SS') plot a symbol at given RA/DEC coords
+      %   and return a handle to it.
+      %
+      %   h=SCATTER(s, RA, DEC) does the same for RA and DEC given as vectors in [deg].
+      %
+      %   h=SCATTER(s, ..., 'prop','value'...) uses given Property/Values pairs
+      %   for the plot.
+      h = scatter(self.private.skychart, varargin{:});
+    end
     
     function url = web(self, url)
       % WEB Display the StarGo RA/DEC location in a web browser (http://www.sky-map.org).

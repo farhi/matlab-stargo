@@ -10,6 +10,7 @@ function h = build_interface(self)
     disp('StarGo: building interface. Please wait.');
     h = openfig('stargo.fig');
     self.private.figure = h;
+    set(h, 'CloseRequestFcn',@(src,evnt)delete(h));
     
     % uicontrols
     Callbacks = { ...
