@@ -67,6 +67,11 @@ function h = build_interface(self)
     % get the axes for skychart
     self.private.axes = [ findall(0, 'Tag','stargo_skychart') findall(0,'Tag','SkyChart_Axes') ];
     
+    if ~exist('skychart') % install SkyChart from submodule
+      d = fileparts(fileparts(which(class(self)))); % dir above class
+      addpath(fullfile(d,'matlab-skychart'));
+    end
+    
     if ~isempty(self.private.axes) && exist('skychart')
       self.private.skychart = skychart('figure', h, 'axes', self.private.axes(1), 'location', [ self.longitude self.latitude ]);
       connect(self.private.skychart, self);
