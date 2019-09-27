@@ -1,0 +1,3 @@
+[submodule "matlab-skychart"]
+	path = matlab-skychart
+	url = https://github.com/farhi/matlab-skychart
