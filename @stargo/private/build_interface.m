@@ -70,6 +70,10 @@ function h = build_interface(self)
     if ~exist('skychart') % install SkyChart from submodule
       d = fileparts(fileparts(which(class(self)))); % dir above class
       addpath(fullfile(d,'matlab-skychart'));
+      if ~exist('skychart')
+        disp([ mfilename ': WARNING: skychart can not be found.' ])
+        disp('*** Use "git submodule init", then "git submodule update" to import it.' ]);
+      end
     end
     
     if ~isempty(self.private.axes) && exist('skychart')
