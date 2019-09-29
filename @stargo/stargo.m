@@ -430,6 +430,16 @@ classdef stargo < handle
       st = self.status;
     end
     
+    function c = get_catalogs(self)
+      % GET_CATALOGS Get the loaded catalogs
+      if isfield(self.private,'skychart') && isobject(self.private.skychart) ...
+      && ismethod(self.private.skychart, 'findobj')
+        c = self.private.skychart.catalogs;
+      else
+        c = [];
+      end
+    end
+    
     
     % SET commands -------------------------------------------------------------
     function self=stop(self)
