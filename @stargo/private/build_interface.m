@@ -72,7 +72,7 @@ function h = build_interface(self)
       addpath(fullfile(d,'matlab-skychart'));
       if ~exist('skychart')
         disp([ mfilename ': WARNING: skychart can not be found.' ])
-        disp('*** Use "git submodule init", then "git submodule update" to import it.' ]);
+        disp('*** Use "git submodule init", then "git submodule update" to import it.');
       end
     end
     
