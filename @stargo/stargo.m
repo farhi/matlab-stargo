@@ -484,6 +484,15 @@ classdef stargo < handle
       disp([ '[' datestr(now) '] ' mfilename ': start: Mount Ready.' ]);
     end % start
     
+    function reset(self)
+      % RESET Reset the mount to its start-up state. 
+      home(self);
+      pause(2);
+      stop(self);
+      pause(2);
+      start(self);
+    end % reset
+    
     function pl = place(self, longitude, latitude)
       % PLACE Set/get the site location.
       %   PLACE(s) reads the [longitude latitude] in deg from the mount.
@@ -674,8 +683,8 @@ classdef stargo < handle
     
     function sync(self)
       % SYNC Synchronise current RA/DEC with last target.
-      %   SYNC(s) tells the mount that the target object corresponds with the 
-      %   previously defined target (from GOTO).
+      %   SYNC(s) tells the mount that the target (current) RA/DEC corresponds 
+      %   with the previously defined target (from GOTO).
       %
       %   SYNC(s, 'pole') tells the mount that it is aligned on the Pole.
       
@@ -810,6 +819,17 @@ classdef stargo < handle
       end
 
     end % zoom
+    
+    function s = getspeed(self)
+      % GETSPEED Return current speed.
+      s = zoom(self);
+    end % getspeed
+    
+    function setspeed(self, s)
+      %   SETSPEED(s, level) sets the zoom level (1-4) which correspond with
+      %   'guide','center','find', and 'max'.
+      zoom(self, s);
+    end % setspeed
     
     % MOVES --------------------------------------------------------------------
     
@@ -968,7 +988,7 @@ classdef stargo < handle
     function shift(self, delta_ra, delta_dec)
       % SHIFT Move the mount by a given amount on both axes. The target is kept.
       %   SHIFT(s, delta_ra, delta_dec) moves the mount by given values in [deg]
-      %   The values are added to the current coordinates.
+      %   The values are added/subtracted to the current coordinates.
       %   The RA and DEC can also be given in absolute coordinates using strings
       %   as 'H:M:S' and 'DEG:M:S', as well as from vectors as [H M S] and [D M S].
       %   This move does not change the target defined with GOTO.
